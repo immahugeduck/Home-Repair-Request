@@ -42,10 +42,27 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+let firebaseConfig = {};
+let app, auth, db;
+let firebaseInitError = null;
+
+try {
+  firebaseConfig = JSON.parse(__firebase_config || '{}');
+  
+  // Validate Firebase config has required fields
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+    firebaseInitError = 'Firebase configuration is incomplete. Please add environment variables.';
+    console.warn(firebaseInitError);
+  } else {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+} catch (error) {
+  firebaseInitError = `Firebase initialization error: ${error.message}`;
+  console.error(firebaseInitError);
+}
+
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'home-repair-app';
 
 // --- Constants & Helpers ---
@@ -559,6 +576,28 @@ function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  if (firebaseInitError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
+          <div className="text-red-500 text-4xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold mb-2">Configuration Error</h2>
+          <p className="text-slate-600 text-sm mb-4">{firebaseInitError}</p>
+          <p className="text-slate-500 text-xs mb-6">Please configure Firebase environment variables.</p>
+          <code className="text-[11px] bg-slate-100 p-3 rounded-lg block text-left text-slate-700 font-mono mb-4 overflow-auto max-h-24">
+            VITE_FIREBASE_CONFIG environment variable
+          </code>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm"
+          >
+            Try Again
+          </button>
+        </div>
       </div>
     );
   }
