@@ -1,0 +1,13 @@
+curl -X POST "https://ai-gateway.vercel.sh/v1/chat/completions" \
+-H "Authorization: Bearer $AI_GATEWAY_API_KEY" \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 /
+-H "Content-Type: application/json" \
+-d '{
+  "model": "openai/gpt-5.2",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Why is the sky blue?"
+    }
+  ],
+  "stream": false
+}'
