@@ -45,32 +45,31 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
-let firebaseConfig = {};
+const firebaseConfig = {
+  apiKey: "AIzaSyARi-6Na2z8hDm_8rMjDqBaXN_2xu8ecVk",
+  authDomain: "homerepair-request.firebaseapp.com",
+  projectId: "homerepair-request",
+  storageBucket: "homerepair-request.firebasestorage.app",
+  messagingSenderId: "357305821114",
+  appId: "1:357305821114:web:722516bb55b4d269bbdf83",
+  measurementId: "G-CC3TBDK93Q"
+};
+
 let app = null;
 let auth = null;
 let db = null;
 let firebaseInitError = null;
 
 try {
-  // Handle case where __firebase_config might not be defined
-  const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-  firebaseConfig = JSON.parse(configString);
-  
-  // Validate Firebase config has required fields
-  if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-    firebaseInitError = 'Firebase configuration is incomplete. Please add the required environment variables.';
-    console.warn(firebaseInitError);
-  } else {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
 } catch (error) {
   firebaseInitError = `Firebase initialization error: ${error.message}`;
   console.error(firebaseInitError);
 }
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'home-repair-app';
+const appId = 'home-repair-app';
 
 // --- Constants & Helpers ---
 const CATEGORIES = [
