@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
@@ -14,8 +15,17 @@ import {
   doc, 
   setDoc,
   updateDoc, 
-  serverTimestamp 
+  serverTimestamp,
+  query,
+  orderBy,
+  where
 } from 'firebase/firestore';
+import { 
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL
+} from 'firebase/storage';
 import { 
   Plus, 
   Wrench, 
@@ -26,6 +36,7 @@ import {
   Clock, 
   CheckCircle2, 
   ChevronRight, 
+  ChevronLeft,
   Home, 
   List, 
   User,
@@ -41,7 +52,17 @@ import {
   Building2,
   AlertTriangle,
   Settings,
-  RefreshCw
+  RefreshCw,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Camera,
+  Image,
+  Send,
+  LogOut,
+  ArrowRight,
+  PlayCircle
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -58,12 +79,14 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
+let storage = null;
 let firebaseInitError = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   firebaseInitError = `Firebase initialization error: ${error.message}`;
   console.error(firebaseInitError);
@@ -71,31 +94,37 @@ try {
 
 const appId = 'home-repair-app';
 
+// Company Info
+const COMPANY = {
+  name: 'First Call Maintenance',
+  tagline: 'Home Repair',
+  phone1: '765-246-4405',
+  phone2: '765-770-6076',
+  email: 'zak@firstcallmaintenance.biz',
+  logo: '/logo.jpeg'
+};
+
+// Admin Code (you can change this)
+const ADMIN_CODE = 'fcm2024';
+
 // --- Constants & Helpers ---
 const CATEGORIES = [
   { id: 'plumbing', label: 'Plumbing', icon: Droplets, color: 'text-blue-500', bg: 'bg-blue-50' },
-  { id: 'electrical', label: 'Electrical', icon: Zap, color: 'text-yellow-500', bg: 'bg-yellow-50' },
+  { id: 'electrical', label: 'Electrical', icon: Zap, color: 'text-amber-500', bg: 'bg-amber-50' },
   { id: 'hvac', label: 'HVAC', icon: Thermometer, color: 'text-orange-500', bg: 'bg-orange-50' },
   { id: 'structural', label: 'Structural', icon: Hammer, color: 'text-stone-500', bg: 'bg-stone-50' },
-  { id: 'general', label: 'General', icon: Wrench, color: 'text-indigo-500', bg: 'bg-indigo-50' },
-];
-
-const URGENCY_LEVELS = [
-  { id: 'low', label: 'Low', color: 'bg-slate-100 text-slate-700' },
-  { id: 'medium', label: 'Medium', color: 'bg-blue-100 text-blue-700' },
-  { id: 'high', label: 'High', color: 'bg-orange-100 text-orange-700' },
-  { id: 'emergency', label: 'Emergency', color: 'bg-red-100 text-red-700' },
+  { id: 'general', label: 'General', icon: Wrench, color: 'text-purple-500', bg: 'bg-purple-50' },
 ];
 
 const STATUS_MAP = {
-  pending: { label: 'Pending', icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
-  waiting_confirmation: { label: 'Scheduling', icon: Calendar, color: 'text-indigo-500', bg: 'bg-indigo-50' },
-  in_progress: { label: 'In Progress', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-50' },
-  completed: { label: 'Completed', icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-50' },
+  pending: { label: 'Pending Review', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
+  scheduled: { label: 'Scheduled', icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
+  in_progress: { label: 'In Progress', icon: PlayCircle, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
+  completed: { label: 'Completed', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
 const Badge = ({ children, className }) => (
-  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${className}`}>
+  <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${className}`}>
     {children}
   </span>
 );
@@ -125,11 +154,11 @@ class ErrorBoundary extends React.Component {
             </div>
             <h2 className="text-2xl font-bold text-slate-800 mb-3">Something went wrong</h2>
             <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-              An unexpected error occurred. Please try refreshing the page to continue.
+              An unexpected error occurred. Please try refreshing the page.
             </p>
             <button 
               onClick={() => window.location.reload()} 
-              className="bg-slate-800 text-white px-8 py-3.5 rounded-xl font-bold inline-flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-lg"
+              className="bg-purple-600 text-white px-8 py-3.5 rounded-xl font-bold inline-flex items-center gap-2 hover:bg-purple-700 transition-colors shadow-lg"
             >
               <RefreshCw size={18} />
               Refresh Page
@@ -143,1036 +172,1509 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// --- Sub-Components ---
-const ProfileSetupView = ({ profileForm, setProfileForm, handleSaveProfile, isSubmitting, setView }) => (
-  <div className="p-6 max-w-lg mx-auto animate-in slide-in-from-bottom-4 duration-300">
-    <div className="flex items-center gap-4 mb-8">
-      <button onClick={() => setView('profile')} className="p-2 hover:bg-slate-100 rounded-full">
-        <X size={20} className="text-slate-500" />
-      </button>
-      <h1 className="text-xl font-bold text-slate-800">My Profile</h1>
-    </div>
-    <div className="text-center mb-8">
-      <div className="bg-indigo-100 text-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-        <UserCircle size={32} />
-      </div>
-      <p className="text-slate-500 text-sm">We use this to contact you about repairs.</p>
-    </div>
-    <form onSubmit={handleSaveProfile} className="space-y-5">
-      <div className="space-y-1.5">
-        <label className="text-sm font-bold text-slate-700 ml-1">Full Name</label>
-        <input 
-          type="text" 
-          required 
-          value={profileForm.fullName || ''} 
-          onChange={e => setProfileForm({...profileForm, fullName: e.target.value})} 
-          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
-          placeholder="Enter your name" 
-        />
-      </div>
-      <div className="space-y-1.5">
-        <label className="text-sm font-bold text-slate-700 ml-1">Phone</label>
-        <input 
-          type="tel" 
-          required 
-          value={profileForm.phone || ''} 
-          onChange={e => setProfileForm({...profileForm, phone: e.target.value})} 
-          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
-          placeholder="(555) 000-0000" 
-        />
-      </div>
-      <div className="space-y-1.5">
-        <label className="text-sm font-bold text-slate-700 ml-1">Primary Address</label>
-        <input 
-          type="text" 
-          required 
-          value={profileForm.address || ''} 
-          onChange={e => setProfileForm({...profileForm, address: e.target.value})} 
-          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" 
-          placeholder="Where do you live?" 
-        />
-      </div>
-      <button 
-        disabled={isSubmitting} 
-        className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isSubmitting ? 'Saving...' : 'Save Profile'}
-      </button>
-    </form>
-  </div>
-);
-
-const StaffInboxView = ({ allRequests, pendingCount, updateRequestStatus, proposeTimeSlot, companyProfile }) => {
-  const [activeProposalId, setActiveProposalId] = useState(null);
-  const [timeSlot, setTimeSlot] = useState('');
-
-  const handleProposalSubmit = useCallback((requestId) => {
-    if (timeSlot.trim()) {
-      proposeTimeSlot(requestId, timeSlot);
-      setActiveProposalId(null);
-      setTimeSlot('');
-    }
-  }, [timeSlot, proposeTimeSlot]);
-
+// ============================================
+// LANDING PAGE
+// ============================================
+const LandingPage = ({ onGetStarted }) => {
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Team Inbox</h1>
-          <p className="text-sm text-slate-500 truncate max-w-[200px]">{companyProfile.name}</p>
+    <div className="min-h-screen bg-white flex flex-col">
+      {/* Header */}
+      <header className="px-6 py-4 flex items-center justify-between border-b border-slate-100">
+        <img src={COMPANY.logo} alt={COMPANY.name} className="h-12 object-contain" />
+        <a 
+          href={`tel:${COMPANY.phone1.replace(/-/g, '')}`}
+          className="bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2"
+        >
+          <Phone size={16} />
+          Call Now
+        </a>
+      </header>
+
+      {/* Hero */}
+      <main className="flex-1 flex flex-col">
+        <div className="px-6 py-12 flex-1 flex flex-col justify-center">
+          <h1 className="text-4xl font-black text-slate-900 mb-4 leading-tight">
+            Home Repairs<br/>
+            <span className="text-purple-600">Made Simple</span>
+          </h1>
+          <p className="text-slate-500 text-lg mb-8 leading-relaxed max-w-sm">
+            Submit repair requests online, track progress, and communicate directly with our team.
+          </p>
+          
+          <button 
+            onClick={onGetStarted}
+            className="bg-purple-600 text-white px-8 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 shadow-xl shadow-purple-200 hover:bg-purple-700 transition-all active:scale-95 w-full max-w-sm"
+          >
+            Submit a Request
+            <ArrowRight size={22} />
+          </button>
         </div>
-        {pendingCount > 0 && (
-          <div className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-            {pendingCount} New
-          </div>
-        )}
-      </div>
 
-      <div className="space-y-4">
-        {allRequests.length === 0 ? (
-          <div className="text-center py-20 text-slate-400">
-            <Inbox size={48} className="mx-auto opacity-20 mb-2" />
-            <p>Inbox is empty.</p>
-          </div>
-        ) : (
-          allRequests.map(req => {
-            const urgency = URGENCY_LEVELS.find(u => u.id === req.urgency);
-            const status = STATUS_MAP[req.status];
-            
-            return (
-              <div key={req.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm animate-in fade-in duration-300">
-                <div className="p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-2">
-                      <Badge className={urgency?.color || 'bg-slate-100 text-slate-700'}>
-                        {req.urgency}
-                      </Badge>
-                      <span className="text-[10px] text-slate-400 font-mono">#{req.id.slice(-4)}</span>
-                    </div>
-                    <div className={`flex items-center gap-1 text-xs font-bold ${status?.color || 'text-slate-500'}`}>
-                      {status?.label || 'Unknown'}
-                    </div>
-                  </div>
-                  
-                  <h3 className="font-bold text-slate-800 capitalize mb-1">{req.category} Issue</h3>
-                  <p className="text-sm text-slate-600 mb-4">{req.description}</p>
-                  
-                  <div className="bg-slate-50 p-3 rounded-xl mb-4 border border-slate-100">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Customer Preference</p>
-                    <p className="text-xs text-slate-700 font-medium">{req.preferredDates || 'Anytime'}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-y-2 mb-4 border-t pt-4 border-slate-50">
-                    <div className="flex items-center gap-2 text-slate-500 text-xs">
-                      <UserCircle size={14} className="shrink-0" />
-                      <span className="font-semibold truncate">{req.userName}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-500 text-xs justify-end">
-                      <Phone size={14} className="shrink-0" />
-                      <span>{req.userPhone}</span>
-                    </div>
-                    <div className="col-span-2 flex items-center gap-2 text-slate-500 text-xs">
-                      <MapPin size={14} className="shrink-0" />
-                      <span className="truncate">{req.address}</span>
-                    </div>
-                  </div>
-
-                  {req.status === 'pending' && activeProposalId !== req.id && (
-                    <button 
-                      onClick={() => setActiveProposalId(req.id)} 
-                      className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors"
-                    >
-                      Propose Time Slot
-                    </button>
-                  )}
-
-                  {activeProposalId === req.id && (
-                    <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
-                      <input 
-                        type="text" 
-                        placeholder="e.g., Tomorrow at 9 AM" 
-                        className="w-full p-3 border rounded-xl text-sm focus:ring-2 focus:ring-slate-800 outline-none" 
-                        value={timeSlot} 
-                        onChange={(e) => setTimeSlot(e.target.value)} 
-                      />
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleProposalSubmit(req.id)} 
-                          className="flex-1 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold disabled:opacity-50 hover:bg-emerald-700 transition-colors" 
-                          disabled={!timeSlot.trim()}
-                        >
-                          Send Proposal
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setActiveProposalId(null);
-                            setTimeSlot('');
-                          }} 
-                          className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {req.status === 'in_progress' && (
-                    <button 
-                      onClick={() => updateRequestStatus(req.id, 'completed')} 
-                      className="w-full py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl font-bold text-sm hover:bg-emerald-100 transition-colors"
-                    >
-                      Mark Job Completed
-                    </button>
-                  )}
-
-                  {req.status === 'waiting_confirmation' && (
-                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100">
-                      <p className="text-[10px] text-amber-700 font-bold uppercase tracking-tight">Awaiting Customer Confirmation</p>
-                      <p className="text-xs text-amber-600 font-bold mt-1">"{req.proposedTime}"</p>
-                    </div>
-                  )}
-                </div>
+        {/* Services Preview */}
+        <div className="px-6 py-8 bg-slate-50 border-t border-slate-100">
+          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Our Services</h2>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-6 px-6">
+            {CATEGORIES.map(cat => (
+              <div 
+                key={cat.id}
+                className={`${cat.bg} px-4 py-3 rounded-2xl flex items-center gap-2 shrink-0`}
+              >
+                <cat.icon size={18} className={cat.color} />
+                <span className="font-bold text-slate-700 text-sm">{cat.label}</span>
               </div>
-            );
-          })
-        )}
-      </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Contact Info */}
+        <div className="px-6 py-8 bg-purple-600 text-white">
+          <h2 className="font-bold text-lg mb-4">Contact Us</h2>
+          <div className="space-y-3">
+            <a href={`tel:${COMPANY.phone1.replace(/-/g, '')}`} className="flex items-center gap-3 text-purple-100 hover:text-white">
+              <Phone size={18} />
+              <span className="font-medium">{COMPANY.phone1}</span>
+            </a>
+            <a href={`tel:${COMPANY.phone2.replace(/-/g, '')}`} className="flex items-center gap-3 text-purple-100 hover:text-white">
+              <Phone size={18} />
+              <span className="font-medium">{COMPANY.phone2}</span>
+            </a>
+            <a href={`mailto:${COMPANY.email}`} className="flex items-center gap-3 text-purple-100 hover:text-white">
+              <Mail size={18} />
+              <span className="font-medium">{COMPANY.email}</span>
+            </a>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };
 
-// --- Main App ---
-function App() {
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [companyProfile, setCompanyProfile] = useState({
-    name: 'First Call Maintenance',
-    logoUrl: '',
-    phone: '',
-    email: ''
-  });
-  const [isStaffMode, setIsStaffMode] = useState(false);
-  const [view, setView] = useState('home'); 
-  const [requests, setRequests] = useState([]);
-  const [allRequests, setAllRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+// ============================================
+// AUTH PAGES
+// ============================================
+const AuthPage = ({ onBack, onAuthSuccess }) => {
+  const [mode, setMode] = useState('login'); // 'login' or 'signup'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // Form States
-  const [formData, setFormData] = useState({
-    category: 'general',
-    urgency: 'medium',
-    description: '',
-    address: '',
-    preferredDates: ''
-  });
-  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '', address: '' });
-  const [companyForm, setCompanyForm] = useState({ 
-    name: 'First Call Maintenance', 
-    logoUrl: '', 
-    phone: '', 
-    email: '' 
-  });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
-  // --- Auth & Data Listeners ---
-  useEffect(() => {
-    // Skip auth initialization if Firebase isn't configured
-    if (firebaseInitError || !auth) {
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match');
       setLoading(false);
       return;
     }
-    
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) { 
-        console.error("Auth error:", error); 
-        setLoading(false);
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (mode === 'signup') {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
       }
-    };
-    initAuth();
-    
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false);
+      onAuthSuccess();
+    } catch (err) {
+      console.error('Auth error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('An account with this email already exists');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password');
+      } else {
+        setError('Something went wrong. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      {/* Header */}
+      <header className="px-4 py-4 flex items-center gap-4 border-b border-slate-100">
+        <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full">
+          <ChevronLeft size={24} className="text-slate-600" />
+        </button>
+        <img src={COMPANY.logo} alt={COMPANY.name} className="h-10 object-contain" />
+      </header>
+
+      <main className="flex-1 px-6 py-8 flex flex-col">
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">
+          {mode === 'login' ? 'Welcome Back' : 'Create Account'}
+        </h1>
+        <p className="text-slate-500 mb-8">
+          {mode === 'login' 
+            ? 'Sign in to manage your repair requests' 
+            : 'Sign up to submit and track repairs'}
+        </p>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4 flex-1">
+          <div>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Email</label>
+            <div className="relative">
+              <Mail size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+                placeholder="you@example.com"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Password</label>
+            <div className="relative">
+              <Lock size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-12 pr-12 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+                placeholder="Min. 6 characters"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+
+          {mode === 'signup' && (
+            <div>
+              <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Confirm Password</label>
+              <div className="relative">
+                <Lock size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+                  placeholder="Re-enter password"
+                />
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+          >
+            {loading ? 'Please wait...' : (mode === 'login' ? 'Sign In' : 'Create Account')}
+          </button>
+        </form>
+
+        <div className="pt-6 text-center">
+          <p className="text-slate-500">
+            {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+            <button
+              onClick={() => {
+                setMode(mode === 'login' ? 'signup' : 'login');
+                setError('');
+              }}
+              className="text-purple-600 font-bold ml-2"
+            >
+              {mode === 'login' ? 'Sign Up' : 'Sign In'}
+            </button>
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// ============================================
+// PROFILE SETUP
+// ============================================
+const ProfileSetup = ({ user, onComplete, initialData }) => {
+  const [fullName, setFullName] = useState(initialData?.fullName || '');
+  const [phone, setPhone] = useState(initialData?.phone || '');
+  const [address, setAddress] = useState(initialData?.address || '');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+      await setDoc(profileRef, {
+        fullName,
+        phone,
+        address,
+        email: user.email,
+        updatedAt: serverTimestamp()
+      });
+      onComplete();
+    } catch (error) {
+      console.error('Save profile error:', error);
+      alert('Failed to save profile. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      <header className="px-6 py-4 border-b border-slate-100">
+        <img src={COMPANY.logo} alt={COMPANY.name} className="h-10 object-contain" />
+      </header>
+
+      <main className="flex-1 px-6 py-8">
+        <div className="text-center mb-8">
+          <div className="bg-purple-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <UserCircle size={40} className="text-purple-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Complete Your Profile</h1>
+          <p className="text-slate-500">We need this info to process your repair requests</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Full Name</label>
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+              placeholder="Your full name"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Phone Number</label>
+            <input
+              type="tel"
+              required
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+              placeholder="(555) 123-4567"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Home Address</label>
+            <textarea
+              required
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              rows={3}
+              className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base resize-none"
+              placeholder="123 Main St, City, State ZIP"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-purple-200 hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+          >
+            {loading ? 'Saving...' : 'Save & Continue'}
+          </button>
+        </form>
+      </main>
+    </div>
+  );
+};
+
+// ============================================
+// PHOTO UPLOAD COMPONENT
+// ============================================
+const PhotoUploader = ({ photos, setPhotos, maxPhotos = 5 }) => {
+  const fileInputRef = useRef(null);
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (photos.length + files.length > maxPhotos) {
+      alert(`Maximum ${maxPhotos} photos allowed`);
+      return;
+    }
+
+    const newPhotos = files.map(file => ({
+      file,
+      preview: URL.createObjectURL(file),
+      uploading: false
+    }));
+
+    setPhotos([...photos, ...newPhotos]);
+  };
+
+  const removePhoto = (index) => {
+    const updated = [...photos];
+    URL.revokeObjectURL(updated[index].preview);
+    updated.splice(index, 1);
+    setPhotos(updated);
+  };
+
+  return (
+    <div>
+      <label className="text-sm font-bold text-slate-700 ml-1 block mb-2">
+        Photos (Optional - up to {maxPhotos})
+      </label>
+      
+      <div className="flex flex-wrap gap-3">
+        {photos.map((photo, index) => (
+          <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100">
+            <img src={photo.preview} alt="" className="w-full h-full object-cover" />
+            <button
+              type="button"
+              onClick={() => removePhoto(index)}
+              className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+
+        {photos.length < maxPhotos && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:border-purple-400 hover:text-purple-500 transition-colors"
+          >
+            <Camera size={24} />
+            <span className="text-[10px] font-bold mt-1">Add</span>
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+    </div>
+  );
+};
+
+// ============================================
+// CUSTOMER APP
+// ============================================
+const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
+  const [view, setView] = useState('home');
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [formData, setFormData] = useState({
+    category: 'general',
+    description: '',
+    preferredTime: '',
+    photos: []
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    fullName: userProfile?.fullName || '',
+    phone: userProfile?.phone || '',
+    address: userProfile?.address || ''
+  });
+
+  // Messages listener for selected request
+  const [messages, setMessages] = useState([]);
+  useEffect(() => {
+    if (!selectedRequest) {
+      setMessages([]);
+      return;
+    }
+
+    const messagesRef = collection(
+      db, 
+      'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
+    );
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => unsubscribe();
+  }, [selectedRequest]);
+
+  const uploadPhotos = async (photos) => {
+    const urls = [];
+    for (const photo of photos) {
+      if (photo.file) {
+        const fileName = `${user.uid}/${Date.now()}_${photo.file.name}`;
+        const storageRef = ref(storage, `repair-photos/${fileName}`);
+        await uploadBytes(storageRef, photo.file);
+        const url = await getDownloadURL(storageRef);
+        urls.push(url);
+      }
+    }
+    return urls;
+  };
+
+  const handleSubmitRequest = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      // Upload photos first
+      let photoUrls = [];
+      if (formData.photos.length > 0) {
+        photoUrls = await uploadPhotos(formData.photos);
+      }
+
+      const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
+      await addDoc(requestsRef, {
+        category: formData.category,
+        description: formData.description,
+        preferredTime: formData.preferredTime,
+        photos: photoUrls,
+        address: userProfile.address,
+        userId: user.uid,
+        userName: userProfile.fullName,
+        userPhone: userProfile.phone,
+        userEmail: user.email,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+
+      // Reset form
+      setFormData({
+        category: 'general',
+        description: '',
+        preferredTime: '',
+        photos: []
+      });
+      setView('list');
+    } catch (error) {
+      console.error('Submit error:', error);
+      alert('Failed to submit request. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedRequest) return;
+
+    try {
+      const messagesRef = collection(
+        db,
+        'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
+      );
+      await addDoc(messagesRef, {
+        text: messageText,
+        senderId: user.uid,
+        senderName: userProfile.fullName,
+        isAdmin: false,
+        createdAt: serverTimestamp()
+      });
+      setMessageText('');
+    } catch (error) {
+      console.error('Send message error:', error);
+    }
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+      await setDoc(profileRef, {
+        ...profileForm,
+        email: user.email,
+        updatedAt: serverTimestamp()
+      });
+      setEditingProfile(false);
+    } catch (error) {
+      console.error('Save profile error:', error);
+      alert('Failed to save profile.');
+    }
+  };
+
+  const pendingActions = requests.filter(r => r.status === 'scheduled').length;
+
+  // Request Detail View with Messages
+  if (selectedRequest) {
+    const status = STATUS_MAP[selectedRequest.status];
+    const category = CATEGORIES.find(c => c.id === selectedRequest.category);
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <header className="bg-white px-4 py-4 flex items-center gap-4 border-b border-slate-100 sticky top-0 z-10">
+          <button onClick={() => setSelectedRequest(null)} className="p-2 hover:bg-slate-100 rounded-full">
+            <ChevronLeft size={24} className="text-slate-600" />
+          </button>
+          <div className="flex-1">
+            <h1 className="font-bold text-slate-900 capitalize">{selectedRequest.category} Repair</h1>
+            <p className="text-xs text-slate-500">Request #{selectedRequest.id.slice(-6)}</p>
+          </div>
+          <Badge className={`${status?.bg} ${status?.color}`}>{status?.label}</Badge>
+        </header>
+
+        <main className="flex-1 flex flex-col">
+          {/* Request Details */}
+          <div className="bg-white p-4 border-b border-slate-100">
+            <p className="text-slate-700 mb-3">{selectedRequest.description}</p>
+            
+            {selectedRequest.photos?.length > 0 && (
+              <div className="flex gap-2 mb-3 overflow-x-auto">
+                {selectedRequest.photos.map((url, i) => (
+                  <img key={i} src={url} alt="" className="w-20 h-20 rounded-lg object-cover shrink-0" />
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <MapPin size={14} />
+              <span>{selectedRequest.address}</span>
+            </div>
+
+            {selectedRequest.scheduledTime && (
+              <div className="mt-3 bg-purple-50 p-3 rounded-xl border border-purple-100">
+                <p className="text-xs font-bold text-purple-600 uppercase mb-1">Scheduled For</p>
+                <p className="font-bold text-purple-900">{selectedRequest.scheduledTime}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+            {messages.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            ) : (
+              messages.map(msg => (
+                <div
+                  key={msg.id}
+                  className={`max-w-[80%] p-3 rounded-2xl ${
+                    msg.isAdmin 
+                      ? 'bg-white border border-slate-200 mr-auto'
+                      : 'bg-purple-600 text-white ml-auto'
+                  }`}
+                >
+                  {msg.isAdmin && (
+                    <p className="text-[10px] font-bold text-purple-600 mb-1">{COMPANY.name}</p>
+                  )}
+                  <p className="text-sm">{msg.text}</p>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Message Input */}
+          <div className="bg-white p-4 border-t border-slate-100">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-purple-500 text-base"
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!messageText.trim()}
+                className="bg-purple-600 text-white p-3 rounded-xl disabled:opacity-50"
+              >
+                <Send size={20} />
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100 sticky top-0 z-10">
+        <img src={COMPANY.logo} alt={COMPANY.name} className="h-10 object-contain" />
+        <div className="flex items-center gap-2">
+          {pendingActions > 0 && (
+            <div className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-xs font-bold">
+              {pendingActions} Action{pendingActions > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 pb-24 overflow-y-auto">
+        {view === 'home' && (
+          <div className="p-6 space-y-6">
+            {/* Welcome Card */}
+            <div className="bg-purple-600 rounded-3xl p-6 text-white relative overflow-hidden">
+              <div className="relative z-10">
+                <p className="text-purple-200 text-sm mb-1">Welcome back,</p>
+                <h1 className="text-2xl font-bold mb-4">{userProfile?.fullName?.split(' ')[0] || 'Customer'}</h1>
+                <button
+                  onClick={() => setView('new-request')}
+                  className="bg-white text-purple-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg"
+                >
+                  <Plus size={20} strokeWidth={3} />
+                  New Request
+                </button>
+              </div>
+              <Wrench size={120} className="absolute -bottom-6 -right-6 text-white opacity-10" />
+            </div>
+
+            {/* Quick Categories */}
+            <div>
+              <h2 className="font-bold text-slate-800 mb-4">Quick Request</h2>
+              <div className="grid grid-cols-3 gap-3">
+                {CATEGORIES.slice(0, 3).map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => {
+                      setFormData({...formData, category: cat.id});
+                      setView('new-request');
+                    }}
+                    className={`${cat.bg} p-4 rounded-2xl flex flex-col items-center gap-2`}
+                  >
+                    <cat.icon size={24} className={cat.color} />
+                    <span className="text-xs font-bold text-slate-700">{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Requests */}
+            {requests.length > 0 && (
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="font-bold text-slate-800">Recent Requests</h2>
+                  <button onClick={() => setView('list')} className="text-purple-600 text-sm font-bold">
+                    See All
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {requests.slice(0, 3).map(req => {
+                    const status = STATUS_MAP[req.status];
+                    const cat = CATEGORIES.find(c => c.id === req.category);
+                    return (
+                      <button
+                        key={req.id}
+                        onClick={() => setSelectedRequest(req)}
+                        className="w-full bg-white p-4 rounded-2xl flex items-center gap-4 border border-slate-100 text-left"
+                      >
+                        <div className={`p-3 rounded-xl ${cat?.bg || 'bg-slate-50'}`}>
+                          {cat ? <cat.icon size={20} className={cat.color} /> : <Wrench size={20} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-800 capitalize truncate">{req.category} Repair</p>
+                          <p className={`text-xs font-bold ${status?.color}`}>{status?.label}</p>
+                        </div>
+                        <ChevronRight size={20} className="text-slate-300" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'new-request' && (
+          <div className="p-6">
+            <div className="flex items-center gap-4 mb-6">
+              <button onClick={() => setView('home')} className="p-2 hover:bg-slate-200 rounded-full">
+                <X size={20} className="text-slate-500" />
+              </button>
+              <h1 className="text-xl font-bold text-slate-900">New Request</h1>
+            </div>
+
+            <form onSubmit={handleSubmitRequest} className="space-y-6">
+              {/* Category */}
+              <div>
+                <label className="text-sm font-bold text-slate-700 ml-1 block mb-2">What needs fixing?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {CATEGORIES.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setFormData({...formData, category: cat.id})}
+                      className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+                        formData.category === cat.id
+                          ? 'border-purple-600 bg-purple-50'
+                          : 'border-slate-100 bg-white'
+                      }`}
+                    >
+                      <cat.icon size={20} className={formData.category === cat.id ? 'text-purple-600' : cat.color} />
+                      <span className={`text-[10px] font-bold uppercase ${formData.category === cat.id ? 'text-purple-600' : 'text-slate-600'}`}>
+                        {cat.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Describe the issue</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={formData.description}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                  className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base resize-none"
+                  placeholder="Tell us what's wrong..."
+                />
+              </div>
+
+              {/* Photo Upload */}
+              <PhotoUploader
+                photos={formData.photos}
+                setPhotos={(photos) => setFormData({...formData, photos})}
+                maxPhotos={5}
+              />
+
+              {/* Preferred Time */}
+              <div>
+                <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Preferred time for repair</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.preferredTime}
+                  onChange={(e) => setFormData({...formData, preferredTime: e.target.value})}
+                  className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base"
+                  placeholder="e.g., Weekday mornings, Next Monday PM"
+                />
+              </div>
+
+              {/* Address Display */}
+              <div className="bg-slate-50 p-4 rounded-xl">
+                <div className="flex items-center gap-2 text-sm text-slate-500 mb-1">
+                  <MapPin size={14} />
+                  <span className="font-bold">Service Address</span>
+                </div>
+                <p className="text-slate-700">{userProfile?.address}</p>
+                <button
+                  type="button"
+                  onClick={() => setView('profile')}
+                  className="text-purple-600 text-sm font-bold mt-2"
+                >
+                  Change address
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-purple-200 disabled:opacity-50"
+              >
+                {submitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {view === 'list' && (
+          <div className="p-6">
+            <h1 className="text-xl font-bold text-slate-900 mb-6">My Requests</h1>
+            
+            {requests.length === 0 ? (
+              <div className="text-center py-16">
+                <ClipboardList size={48} className="mx-auto text-slate-200 mb-4" />
+                <p className="text-slate-400 font-medium">No requests yet</p>
+                <button
+                  onClick={() => setView('new-request')}
+                  className="mt-4 text-purple-600 font-bold"
+                >
+                  Submit your first request
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {requests.map(req => {
+                  const status = STATUS_MAP[req.status];
+                  const cat = CATEGORIES.find(c => c.id === req.category);
+                  return (
+                    <button
+                      key={req.id}
+                      onClick={() => setSelectedRequest(req)}
+                      className={`w-full bg-white p-4 rounded-2xl flex items-center gap-4 border text-left ${
+                        req.status === 'completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
+                      }`}
+                    >
+                      <div className={`p-3 rounded-xl ${cat?.bg || 'bg-slate-50'}`}>
+                        {cat ? <cat.icon size={20} className={cat.color} /> : <Wrench size={20} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-800 capitalize truncate">{req.category} Repair</p>
+                        <p className={`text-xs font-bold ${status?.color}`}>{status?.label}</p>
+                      </div>
+                      {req.status === 'completed' && (
+                        <CheckCircle2 size={20} className="text-emerald-500" />
+                      )}
+                      <ChevronRight size={20} className="text-slate-300" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'profile' && (
+          <div className="p-6">
+            <h1 className="text-xl font-bold text-slate-900 mb-6">My Profile</h1>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 mb-4">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="font-bold text-slate-800">Contact Information</h2>
+                <button
+                  onClick={() => setEditingProfile(!editingProfile)}
+                  className="text-purple-600 text-sm font-bold"
+                >
+                  {editingProfile ? 'Cancel' : 'Edit'}
+                </button>
+              </div>
+
+              {editingProfile ? (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <input
+                    type="text"
+                    value={profileForm.fullName}
+                    onChange={(e) => setProfileForm({...profileForm, fullName: e.target.value})}
+                    className="w-full p-3 rounded-xl border border-slate-200 outline-none"
+                    placeholder="Full Name"
+                  />
+                  <input
+                    type="tel"
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({...profileForm, phone: e.target.value})}
+                    className="w-full p-3 rounded-xl border border-slate-200 outline-none"
+                    placeholder="Phone"
+                  />
+                  <textarea
+                    value={profileForm.address}
+                    onChange={(e) => setProfileForm({...profileForm, address: e.target.value})}
+                    rows={2}
+                    className="w-full p-3 rounded-xl border border-slate-200 outline-none resize-none"
+                    placeholder="Address"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold"
+                  >
+                    Save Changes
+                  </button>
+                </form>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <UserCircle size={18} className="text-purple-500" />
+                    <span className="text-slate-700">{userProfile?.fullName}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Mail size={18} className="text-purple-500" />
+                    <span className="text-slate-700">{user.email}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Phone size={18} className="text-purple-500" />
+                    <span className="text-slate-700">{userProfile?.phone}</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <MapPin size={18} className="text-purple-500 mt-0.5" />
+                    <span className="text-slate-700">{userProfile?.address}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={onLogout}
+              className="w-full bg-slate-100 text-slate-600 py-4 rounded-xl font-bold flex items-center justify-center gap-2"
+            >
+              <LogOut size={18} />
+              Sign Out
+            </button>
+          </div>
+        )}
+      </main>
+
+      {/* Bottom Nav */}
+      {!['new-request'].includes(view) && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 px-6 py-4 flex justify-around items-center z-50">
+          <button
+            onClick={() => setView('home')}
+            className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-purple-600' : 'text-slate-400'}`}
+          >
+            <Home size={22} />
+            <span className="text-[10px] font-bold">Home</span>
+          </button>
+          <button
+            onClick={() => setView('new-request')}
+            className="bg-purple-600 text-white p-4 rounded-xl -translate-y-4 shadow-lg shadow-purple-200"
+          >
+            <Plus size={24} strokeWidth={3} />
+          </button>
+          <button
+            onClick={() => setView('list')}
+            className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-purple-600' : 'text-slate-400'}`}
+          >
+            <List size={22} />
+            <span className="text-[10px] font-bold">Requests</span>
+          </button>
+          <button
+            onClick={() => setView('profile')}
+            className={`flex flex-col items-center gap-1 ${view === 'profile' ? 'text-purple-600' : 'text-slate-400'}`}
+          >
+            <User size={22} />
+            <span className="text-[10px] font-bold">Profile</span>
+          </button>
+        </nav>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// ADMIN DASHBOARD
+// ============================================
+const AdminDashboard = ({ onExit }) => {
+  const [allRequests, setAllRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [view, setView] = useState('inbox');
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+
+  // Load all requests
+  useEffect(() => {
+    const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
+    const q = query(requestsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setAllRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => unsubscribe();
   }, []);
 
+  // Messages listener
   useEffect(() => {
-    // Skip if no user or Firebase isn't configured
-    if (!user || !db) return;
+    if (!selectedRequest) {
+      setMessages([]);
+      return;
+    }
+
+    const messagesRef = collection(
+      db,
+      'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
+    );
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => unsubscribe();
+  }, [selectedRequest]);
+
+  const handleUpdateStatus = async (requestId, status, extraData = {}) => {
+    try {
+      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', requestId);
+      await updateDoc(requestRef, { status, ...extraData });
+    } catch (error) {
+      console.error('Update status error:', error);
+    }
+  };
+
+  const handleSchedule = async () => {
+    if (!scheduleTime.trim() || !selectedRequest) return;
+    await handleUpdateStatus(selectedRequest.id, 'scheduled', { scheduledTime: scheduleTime });
     
-    // User Profile Listener
-    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-    const unsubscribeProfile = onSnapshot(
-      profileRef, 
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setUserProfile(data);
-          setProfileForm(data);
-          setFormData(prev => ({ 
-            ...prev, 
-            address: prev.address || data.address || ''
-          }));
-        }
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Profile listener error:", error);
-        setLoading(false);
-      }
+    // Send automatic message
+    const messagesRef = collection(
+      db,
+      'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
     );
+    await addDoc(messagesRef, {
+      text: `Your repair has been scheduled for: ${scheduleTime}`,
+      senderId: 'admin',
+      senderName: COMPANY.name,
+      isAdmin: true,
+      createdAt: serverTimestamp()
+    });
 
-    // Company Profile Listener
-    const companyRef = doc(db, 'artifacts', appId, 'public', 'settings', 'company');
-    const unsubscribeCompany = onSnapshot(
-      companyRef, 
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setCompanyProfile(data);
-          // Only update form when NOT actively editing
-          if (view !== 'company-setup') {
-            setCompanyForm(data);
-          }
-        }
-      },
-      (error) => console.error("Company listener error:", error)
+    setScheduleTime('');
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedRequest) return;
+
+    try {
+      const messagesRef = collection(
+        db,
+        'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
+      );
+      await addDoc(messagesRef, {
+        text: messageText,
+        senderId: 'admin',
+        senderName: COMPANY.name,
+        isAdmin: true,
+        createdAt: serverTimestamp()
+      });
+      setMessageText('');
+    } catch (error) {
+      console.error('Send message error:', error);
+    }
+  };
+
+  const pendingCount = allRequests.filter(r => r.status === 'pending').length;
+  const scheduledCount = allRequests.filter(r => r.status === 'scheduled').length;
+  const inProgressCount = allRequests.filter(r => r.status === 'in_progress').length;
+
+  // Request Detail View
+  if (selectedRequest) {
+    const status = STATUS_MAP[selectedRequest.status];
+    const category = CATEGORIES.find(c => c.id === selectedRequest.category);
+
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col text-white">
+        <header className="px-4 py-4 flex items-center gap-4 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
+          <button onClick={() => setSelectedRequest(null)} className="p-2 hover:bg-slate-800 rounded-full">
+            <ChevronLeft size={24} />
+          </button>
+          <div className="flex-1">
+            <h1 className="font-bold capitalize">{selectedRequest.category} Repair</h1>
+            <p className="text-xs text-slate-400">#{selectedRequest.id.slice(-6)}</p>
+          </div>
+          <Badge className={`${status?.bg} ${status?.color}`}>{status?.label}</Badge>
+        </header>
+
+        <main className="flex-1 flex flex-col">
+          {/* Customer Info */}
+          <div className="p-4 border-b border-slate-800">
+            <div className="bg-slate-800 rounded-xl p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <UserCircle size={16} className="text-purple-400" />
+                <span className="font-medium">{selectedRequest.userName}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Phone size={16} className="text-purple-400" />
+                <a href={`tel:${selectedRequest.userPhone}`} className="text-purple-300">{selectedRequest.userPhone}</a>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail size={16} className="text-purple-400" />
+                <span className="text-slate-300 text-sm">{selectedRequest.userEmail}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <MapPin size={16} className="text-purple-400 mt-0.5" />
+                <span className="text-slate-300 text-sm">{selectedRequest.address}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Issue Details */}
+          <div className="p-4 border-b border-slate-800">
+            <p className="text-sm text-slate-400 mb-2">Issue Description</p>
+            <p className="text-slate-200">{selectedRequest.description}</p>
+            
+            {selectedRequest.photos?.length > 0 && (
+              <div className="flex gap-2 mt-3 overflow-x-auto">
+                {selectedRequest.photos.map((url, i) => (
+                  <img key={i} src={url} alt="" className="w-24 h-24 rounded-lg object-cover shrink-0" />
+                ))}
+              </div>
+            )}
+
+            <p className="text-sm text-slate-400 mt-4 mb-1">Customer Preferred Time</p>
+            <p className="text-slate-200">{selectedRequest.preferredTime}</p>
+          </div>
+
+          {/* Status Actions */}
+          <div className="p-4 border-b border-slate-800">
+            {selectedRequest.status === 'pending' && (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-400 mb-2">Schedule Repair</p>
+                <input
+                  type="text"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  placeholder="e.g., Monday March 10 at 9 AM"
+                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 outline-none"
+                />
+                <button
+                  onClick={handleSchedule}
+                  disabled={!scheduleTime.trim()}
+                  className="w-full bg-purple-600 py-3 rounded-xl font-bold disabled:opacity-50"
+                >
+                  Schedule & Notify Customer
+                </button>
+              </div>
+            )}
+
+            {selectedRequest.status === 'scheduled' && (
+              <div className="space-y-3">
+                <div className="bg-purple-900/30 p-3 rounded-xl border border-purple-800">
+                  <p className="text-xs text-purple-400 mb-1">Scheduled For</p>
+                  <p className="font-bold text-purple-300">{selectedRequest.scheduledTime}</p>
+                </div>
+                <button
+                  onClick={() => handleUpdateStatus(selectedRequest.id, 'in_progress')}
+                  className="w-full bg-blue-600 py-3 rounded-xl font-bold"
+                >
+                  Start Job
+                </button>
+              </div>
+            )}
+
+            {selectedRequest.status === 'in_progress' && (
+              <button
+                onClick={() => handleUpdateStatus(selectedRequest.id, 'completed')}
+                className="w-full bg-emerald-600 py-3 rounded-xl font-bold"
+              >
+                Mark as Completed
+              </button>
+            )}
+
+            {selectedRequest.status === 'completed' && (
+              <div className="bg-emerald-900/30 p-4 rounded-xl border border-emerald-800 text-center">
+                <CheckCircle2 size={32} className="mx-auto text-emerald-400 mb-2" />
+                <p className="font-bold text-emerald-300">Job Completed</p>
+              </div>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+            <p className="text-sm text-slate-400 mb-2">Conversation</p>
+            {messages.length === 0 ? (
+              <p className="text-slate-500 text-sm">No messages yet</p>
+            ) : (
+              messages.map(msg => (
+                <div
+                  key={msg.id}
+                  className={`max-w-[80%] p-3 rounded-2xl ${
+                    msg.isAdmin
+                      ? 'bg-purple-600 ml-auto'
+                      : 'bg-slate-800 mr-auto'
+                  }`}
+                >
+                  {!msg.isAdmin && (
+                    <p className="text-[10px] font-bold text-slate-400 mb-1">{msg.senderName}</p>
+                  )}
+                  <p className="text-sm">{msg.text}</p>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Message Input */}
+          <div className="p-4 border-t border-slate-800">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                placeholder="Send a message..."
+                className="flex-1 p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none"
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!messageText.trim()}
+                className="bg-purple-600 p-3 rounded-xl disabled:opacity-50"
+              >
+                <Send size={20} />
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
     );
+  }
 
-    // Global Requests Listener
-    const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
-    const unsubscribeRequests = onSnapshot(
-      requestsRef, 
-      (snapshot) => {
-        const data = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  return (
+    <div className="min-h-screen bg-slate-900 flex flex-col text-white">
+      {/* Header */}
+      <header className="px-6 py-4 flex items-center justify-between border-b border-slate-800">
+        <div>
+          <p className="text-slate-500 text-xs font-bold uppercase">Admin Dashboard</p>
+          <h1 className="text-lg font-bold">{COMPANY.name}</h1>
+        </div>
+        <button
+          onClick={onExit}
+          className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-bold"
+        >
+          Exit Admin
+        </button>
+      </header>
+
+      {/* Stats */}
+      <div className="px-6 py-4 flex gap-3 overflow-x-auto">
+        <div className="bg-amber-900/30 border border-amber-800 rounded-xl px-4 py-3 shrink-0">
+          <p className="text-2xl font-bold text-amber-400">{pendingCount}</p>
+          <p className="text-xs text-amber-300">Pending</p>
+        </div>
+        <div className="bg-purple-900/30 border border-purple-800 rounded-xl px-4 py-3 shrink-0">
+          <p className="text-2xl font-bold text-purple-400">{scheduledCount}</p>
+          <p className="text-xs text-purple-300">Scheduled</p>
+        </div>
+        <div className="bg-blue-900/30 border border-blue-800 rounded-xl px-4 py-3 shrink-0">
+          <p className="text-2xl font-bold text-blue-400">{inProgressCount}</p>
+          <p className="text-xs text-blue-300">In Progress</p>
+        </div>
+      </div>
+
+      {/* Request List */}
+      <main className="flex-1 px-6 py-4">
+        <h2 className="font-bold text-slate-400 uppercase text-xs mb-4">All Requests</h2>
         
-        setAllRequests(data);
-        setRequests(data.filter(req => req.userId === user.uid));
-      }, 
-      (error) => console.error("Requests listener error:", error)
-    );
+        {allRequests.length === 0 ? (
+          <div className="text-center py-16">
+            <Inbox size={48} className="mx-auto text-slate-700 mb-4" />
+            <p className="text-slate-500">No requests yet</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {allRequests.map(req => {
+              const status = STATUS_MAP[req.status];
+              const cat = CATEGORIES.find(c => c.id === req.category);
+              return (
+                <button
+                  key={req.id}
+                  onClick={() => setSelectedRequest(req)}
+                  className={`w-full bg-slate-800 p-4 rounded-xl flex items-center gap-4 text-left border ${status?.border || 'border-slate-700'}`}
+                >
+                  <div className={`p-3 rounded-lg ${cat?.bg || 'bg-slate-700'}`}>
+                    {cat ? <cat.icon size={20} className={cat.color} /> : <Wrench size={20} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-white capitalize truncate">{req.category} Repair</p>
+                    <p className="text-sm text-slate-400 truncate">{req.userName}</p>
+                    <p className={`text-xs font-bold ${status?.color}`}>{status?.label}</p>
+                  </div>
+                  <ChevronRight size={20} className="text-slate-600" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
 
-    return () => { 
-      unsubscribeProfile(); 
-      unsubscribeCompany(); 
-      unsubscribeRequests(); 
+// ============================================
+// MAIN APP
+// ============================================
+function App() {
+  const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [appState, setAppState] = useState('landing'); // 'landing', 'auth', 'profile-setup', 'app', 'admin'
+  const [showAdminPrompt, setShowAdminPrompt] = useState(false);
+  const [adminCode, setAdminCode] = useState('');
+
+  // Auth listener
+  useEffect(() => {
+    if (firebaseInitError || !auth) {
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) {
+        setAppState('app'); // Will check profile in next effect
+      } else {
+        setAppState('landing');
+        setUserProfile(null);
+        setRequests([]);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Profile listener
+  useEffect(() => {
+    if (!user || !db) return;
+
+    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+    const unsubscribeProfile = onSnapshot(profileRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setUserProfile(data);
+        if (appState === 'app' || appState === 'profile-setup') {
+          setAppState('app');
+        }
+      } else {
+        setUserProfile(null);
+        if (appState === 'app') {
+          setAppState('profile-setup');
+        }
+      }
+    });
+
+    // User's requests listener
+    const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
+    const q = query(requestsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+    const unsubscribeRequests = onSnapshot(q, (snapshot) => {
+      setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribeProfile();
+      unsubscribeRequests();
     };
-  }, [user, view]);
+  }, [user, appState]);
 
-  // --- Handlers ---
-  const handleSaveProfile = useCallback(async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+  const handleLogout = async () => {
     try {
-      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-      await setDoc(profileRef, { 
-        ...profileForm, 
-        updatedAt: serverTimestamp() 
-      });
-      setView('home');
-    } catch (error) { 
-      console.error("Save profile error:", error);
-      alert("Failed to save profile. Please try again.");
-    } finally { 
-      setIsSubmitting(false); 
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout error:', error);
     }
-  }, [profileForm, user]);
+  };
 
-  const handleSaveCompany = useCallback(async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const companyRef = doc(db, 'artifacts', appId, 'public', 'settings', 'company');
-      await setDoc(companyRef, { 
-        ...companyForm, 
-        updatedAt: serverTimestamp() 
-      });
-      setView('profile');
-    } catch (error) { 
-      console.error("Save company error:", error);
-      alert("Failed to save company settings. Please try again.");
-    } finally { 
-      setIsSubmitting(false); 
+  const handleAdminAccess = () => {
+    if (adminCode === ADMIN_CODE) {
+      setAppState('admin');
+      setShowAdminPrompt(false);
+      setAdminCode('');
+    } else {
+      alert('Invalid admin code');
     }
-  }, [companyForm]);
-
-  const handleSubmitRequest = useCallback(async (e) => {
-    e.preventDefault();
-    if (!userProfile?.phone || !userProfile?.fullName) { 
-      setView('profile-setup'); 
-      return; 
-    }
-    setIsSubmitting(true);
-    try {
-      const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
-      await addDoc(requestsRef, {
-        ...formData,
-        userId: user.uid,
-        userName: userProfile.fullName,
-        userPhone: userProfile.phone,
-        status: 'pending',
-        createdAt: serverTimestamp(),
-      });
-      setFormData(prev => ({ 
-        ...prev, 
-        description: '', 
-        preferredDates: '' 
-      }));
-      setView('list');
-    } catch (error) { 
-      console.error("Submit request error:", error);
-      alert("Failed to submit request. Please try again.");
-    } finally { 
-      setIsSubmitting(false); 
-    }
-  }, [formData, user, userProfile]);
-
-  const proposeTimeSlot = useCallback(async (requestId, time) => {
-    if (!requestId || !time) return;
-    
-    try {
-      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', requestId);
-      await updateDoc(requestRef, { 
-        status: 'waiting_confirmation', 
-        proposedTime: time 
-      });
-    } catch (error) { 
-      console.error("Propose time slot error:", error);
-      alert("Failed to propose time slot. Please try again.");
-    }
-  }, []);
-
-  const updateRequestStatus = useCallback(async (requestId, nextStatus) => {
-    if (!requestId || !nextStatus) return;
-    
-    try {
-      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', requestId);
-      await updateDoc(requestRef, { status: nextStatus });
-    } catch (error) { 
-      console.error("Update status error:", error);
-      alert("Failed to update status. Please try again.");
-    }
-  }, []);
-
-  const declineSchedule = useCallback(async (requestId) => {
-    if (!requestId) return;
-    
-    try {
-      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', requestId);
-      await updateDoc(requestRef, { 
-        status: 'pending', 
-        proposedTime: null 
-      });
-    } catch (error) { 
-      console.error("Decline schedule error:", error);
-      alert("Failed to decline schedule. Please try again.");
-    }
-  }, []);
-
-  // Memoized counts
-  const customerInboxCount = useMemo(() => 
-    requests.filter(r => r.status === 'waiting_confirmation').length,
-    [requests]
-  );
-
-  const pendingCount = useMemo(() => 
-    allRequests.filter(r => r.status === 'pending').length,
-    [allRequests]
-  );
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <img src={COMPANY.logo} alt={COMPANY.name} className="h-16 mx-auto mb-4" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
+        </div>
       </div>
     );
   }
 
   if (firebaseInitError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 p-6">
-        <div className="bg-white rounded-3xl p-10 max-w-lg text-center shadow-xl border border-slate-100">
-          {/* Icon */}
-          <div className="bg-amber-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8">
-            <Settings size={44} className="text-amber-600" />
-          </div>
-          
-          {/* Header */}
-          <h1 className="text-2xl font-bold text-slate-800 mb-2">Setup Required</h1>
-          <p className="text-slate-500 mb-8 leading-relaxed">
-            HomeFix needs to be connected to Firebase to store repair requests and user data.
-          </p>
-          
-          {/* Error Details */}
-          <div className="bg-slate-50 rounded-2xl p-5 mb-6 text-left border border-slate-100">
-            <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-amber-500 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-slate-700 mb-1">Configuration Issue</p>
-                <p className="text-xs text-slate-500">{firebaseInitError}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Instructions */}
-          <div className="bg-indigo-50 rounded-2xl p-5 mb-8 text-left border border-indigo-100">
-            <p className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-3">What you need to do:</p>
-            <ol className="text-sm text-indigo-900 space-y-2">
-              <li className="flex items-start gap-2">
-                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">1</span>
-                <span>Create a Firebase project at <span className="font-semibold">console.firebase.google.com</span></span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">2</span>
-                <span>Enable Firestore and Anonymous Authentication</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">3</span>
-                <span>Add your Firebase config as <code className="bg-indigo-200/50 px-1.5 py-0.5 rounded font-mono text-xs">VITE_FIREBASE_CONFIG</code></span>
-              </li>
-            </ol>
-          </div>
-          
-          {/* Action Button */}
-          <button 
-            onClick={() => window.location.reload()} 
-            className="bg-indigo-600 text-white px-8 py-3.5 rounded-xl font-bold inline-flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
-          >
-            <RefreshCw size={18} />
-            Try Again
-          </button>
-          
-          {/* Footer Note */}
-          <p className="text-xs text-slate-400 mt-6">
-            Running locally? Check your <code className="font-mono">.env</code> file.
-          </p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="bg-white rounded-3xl p-8 max-w-md text-center shadow-xl">
+          <AlertTriangle size={48} className="mx-auto text-amber-500 mb-4" />
+          <h1 className="text-xl font-bold mb-2">Configuration Error</h1>
+          <p className="text-slate-500 text-sm">{firebaseInitError}</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 overflow-x-hidden">
-      {/* Dynamic Header */}
-      <header className="px-6 pt-8 pb-4 bg-slate-50 flex justify-between items-center sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          {(isStaffMode || (view === 'customer-inbox' && customerInboxCount > 0)) && companyProfile.logoUrl && (
-            <div className="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 shadow-sm">
-              <img src={companyProfile.logoUrl} alt="Logo" className="w-full h-full object-cover" />
-            </div>
-          )}
-          <div>
-            <h2 className="text-slate-400 text-xs font-bold uppercase tracking-widest">
-              {isStaffMode ? 'Staff Portal' : 'HomeFix App'}
-            </h2>
-            <p className="font-bold text-lg truncate max-w-[180px]">
-              {isStaffMode ? companyProfile.name : (userProfile?.fullName || 'Welcome')}
-            </p>
-          </div>
-        </div>
-        <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold border-2 border-white shadow-sm shrink-0 transition-colors ${isStaffMode ? 'bg-slate-800' : 'bg-indigo-600'}`}>
-          {isStaffMode ? <ShieldCheck size={20} /> : <User size={20} />}
-        </div>
-      </header>
-
-      {/* View Switcher */}
-      <main className="flex-1 overflow-y-auto pb-24">
-        {view === 'profile-setup' ? (
-          <ProfileSetupView 
-            profileForm={profileForm} 
-            setProfileForm={setProfileForm} 
-            handleSaveProfile={handleSaveProfile} 
-            isSubmitting={isSubmitting} 
-            setView={setView} 
-          />
-        ) : view === 'company-setup' ? (
-          <div className="p-6 max-w-lg mx-auto">
-            <div className="flex items-center gap-4 mb-8">
-              <button onClick={() => setView('profile')} className="p-2 hover:bg-slate-100 rounded-full">
-                <X size={20}/>
-              </button>
-              <h1 className="text-xl font-bold">Business Settings</h1>
-            </div>
-            <form onSubmit={handleSaveCompany} className="space-y-4">
-              <div>
-                <label className="text-sm font-bold ml-1">Company Name</label>
-                <input 
-                  type="text" 
-                  value={companyForm.name || ''} 
-                  onChange={e => setCompanyForm({...companyForm, name: e.target.value})} 
-                  className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-slate-800" 
-                />
-              </div>
-              <div>
-                <label className="text-sm font-bold ml-1">Logo URL</label>
-                <input 
-                  type="text" 
-                  value={companyForm.logoUrl || ''} 
-                  onChange={e => setCompanyForm({...companyForm, logoUrl: e.target.value})} 
-                  className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-slate-800" 
-                  placeholder="https://..." 
-                />
-              </div>
-              <div>
-                <label className="text-sm font-bold ml-1">Business Phone</label>
-                <input 
-                  type="tel" 
-                  value={companyForm.phone || ''} 
-                  onChange={e => setCompanyForm({...companyForm, phone: e.target.value})} 
-                  className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-slate-800" 
-                />
-              </div>
-              <div>
-                <label className="text-sm font-bold ml-1">Business Email</label>
-                <input 
-                  type="email" 
-                  value={companyForm.email || ''} 
-                  onChange={e => setCompanyForm({...companyForm, email: e.target.value})} 
-                  className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-slate-800" 
-                />
-              </div>
-              <button 
-                disabled={isSubmitting} 
-                className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? 'Saving...' : 'Update Business'}
-              </button>
-            </form>
-          </div>
-        ) : isStaffMode ? (
-          view === 'admin-inbox' ? (
-            <StaffInboxView 
-              allRequests={allRequests} 
-              pendingCount={pendingCount} 
-              updateRequestStatus={updateRequestStatus} 
-              proposeTimeSlot={proposeTimeSlot} 
-              companyProfile={companyProfile} 
-            />
-          ) : (
-            <div className="p-6 text-center py-20 animate-in fade-in duration-500">
-              <ShieldCheck size={64} className="mx-auto text-slate-200 mb-6" />
-              <h2 className="text-2xl font-bold mb-2">Portal Ready</h2>
-              <p className="text-slate-500 max-w-xs mx-auto mb-8">
-                Manage maintenance requests for {companyProfile.name}.
-              </p>
-              <button 
-                onClick={() => setView('admin-inbox')} 
-                className="bg-slate-800 text-white px-10 py-4 rounded-2xl font-bold shadow-xl shadow-slate-200 flex items-center gap-2 mx-auto hover:bg-slate-700 transition-colors"
-              >
-                <Inbox size={20} /> View Team Inbox
-              </button>
-            </div>
-          )
-        ) : (
-          <>
-            {view === 'home' && (
-              <div className="p-6 space-y-8">
-                <div className="bg-indigo-600 rounded-[2rem] p-8 text-white shadow-2xl shadow-indigo-100 relative overflow-hidden">
-                  <div className="relative z-10">
-                    <h1 className="text-3xl font-bold mb-2 leading-tight">Home Repair<br/>Made Simple.</h1>
-                    <p className="text-indigo-100 mb-8 opacity-90 max-w-[200px] leading-relaxed">
-                      {companyProfile.name} is standing by.
-                    </p>
-                    <button 
-                      onClick={() => setView('new-request')} 
-                      className="bg-white text-indigo-600 px-8 py-3.5 rounded-2xl font-extrabold flex items-center gap-2 shadow-lg active:scale-95 transition-all"
-                    >
-                      <Plus size={20} strokeWidth={3} /> New Request
-                    </button>
-                  </div>
-                  <Wrench size={180} className="absolute -bottom-10 -right-10 text-white opacity-10 rotate-12" />
-                </div>
-
-                <section>
-                  <h2 className="text-xl font-bold text-slate-800 mb-5">Quick Services</h2>
-                  <div className="grid grid-cols-2 gap-4">
-                    {CATEGORIES.map(cat => (
-                      <button 
-                        key={cat.id} 
-                        onClick={() => { 
-                          setFormData({...formData, category: cat.id}); 
-                          setView('new-request'); 
-                        }} 
-                        className={`${cat.bg} p-5 rounded-[1.5rem] flex flex-col items-center gap-4 border-2 border-transparent active:border-slate-200 transition-all active:scale-95`}
-                      >
-                        <div className="p-3 bg-white rounded-2xl shadow-sm">
-                          <cat.icon className={cat.color} size={28} />
-                        </div>
-                        <span className="font-bold text-slate-700 text-xs uppercase tracking-widest">
-                          {cat.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              </div>
-            )}
-
-            {view === 'customer-inbox' && (
-              <div className="p-6">
-                <h1 className="text-2xl font-bold mb-6">Inbox</h1>
-                {requests.filter(r => r.status === 'waiting_confirmation' || r.status === 'in_progress').length === 0 ? (
-                  <div className="text-center py-24 opacity-30">
-                    <MessageSquare size={64} className="mx-auto mb-4" />
-                    <p className="font-bold">No new messages.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {requests
-                      .filter(r => r.status === 'waiting_confirmation' || r.status === 'in_progress')
-                      .map(req => (
-                        <div 
-                          key={req.id} 
-                          className="bg-white border-2 border-indigo-50 p-5 rounded-3xl shadow-sm animate-in slide-in-from-right-4"
-                        >
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="h-12 w-12 bg-slate-800 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
-                              {companyProfile.logoUrl ? (
-                                <img src={companyProfile.logoUrl} className="w-full h-full object-cover" alt="Company" />
-                              ) : (
-                                <ShieldCheck size={20} className="text-white"/>
-                              )}
-                            </div>
-                            <div>
-                              <h3 className="font-bold text-slate-800">{companyProfile.name}</h3>
-                              <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest">
-                                Scheduling
-                              </p>
-                            </div>
-                          </div>
-                          {req.status === 'waiting_confirmation' ? (
-                            <div className="space-y-4">
-                              <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
-                                <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1">
-                                  Proposed Arrival
-                                </p>
-                                <p className="font-extrabold text-indigo-900 text-lg">{req.proposedTime}</p>
-                              </div>
-                              <div className="flex gap-2">
-                                <button 
-                                  onClick={() => updateRequestStatus(req.id, 'in_progress')} 
-                                  className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"
-                                >
-                                  Confirm
-                                </button>
-                                <button 
-                                  onClick={() => declineSchedule(req.id)} 
-                                  className="px-5 bg-slate-50 text-slate-400 py-4 rounded-2xl font-bold hover:bg-slate-100 transition-colors"
-                                >
-                                  Decline
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-emerald-50 p-4 rounded-2xl flex items-center gap-3 border border-emerald-100">
-                              <CheckCircle2 className="text-emerald-500" size={24} />
-                              <div>
-                                <p className="text-xs font-bold text-emerald-800">Confirmed</p>
-                                <p className="text-sm font-bold text-emerald-600">{req.proposedTime}</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {view === 'list' && (
-              <div className="p-6">
-                <h1 className="text-2xl font-bold mb-6">History</h1>
-                {requests.length === 0 ? (
-                  <p className="text-center py-20 text-slate-300">No requests yet.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {requests.map(req => {
-                      const category = CATEGORIES.find(c => c.id === req.category);
-                      const status = STATUS_MAP[req.status];
-                      const IconComponent = category?.icon || Wrench;
-                      
-                      return (
-                        <div 
-                          key={req.id} 
-                          className="bg-white border border-slate-100 p-5 rounded-[1.5rem] shadow-sm flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-2xl ${category?.bg || 'bg-slate-50'}`}>
-                              <IconComponent size={24} className={category?.color || 'text-slate-500'} />
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-800 capitalize">{req.category} Repair</p>
-                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                                {status?.label || 'Unknown'}
-                              </p>
-                            </div>
-                          </div>
-                          <ChevronRight className="text-slate-300" size={20} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {view === 'new-request' && (
-              <div className="p-6 max-w-lg mx-auto">
-                <div className="flex items-center gap-4 mb-8">
-                  <button onClick={() => setView('home')} className="p-2 hover:bg-slate-100 rounded-full">
-                    <X size={20}/>
-                  </button>
-                  <h1 className="text-xl font-bold">New Request</h1>
-                </div>
-                <form onSubmit={handleSubmitRequest} className="space-y-6">
-                  <div className="space-y-3">
-                    <label className="text-sm font-bold ml-1">Service Category</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {CATEGORIES.map(cat => (
-                        <button 
-                          key={cat.id} 
-                          type="button" 
-                          onClick={() => setFormData({...formData, category: cat.id})} 
-                          className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all ${
-                            formData.category === cat.id 
-                              ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
-                              : 'border-slate-100 bg-white'
-                          }`}
-                        >
-                          <cat.icon size={20} />
-                          <span className="text-[10px] font-bold uppercase">{cat.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold ml-1">Arrival Preference</label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder="e.g. Next Monday AM" 
-                      value={formData.preferredDates} 
-                      onChange={e => setFormData({...formData, preferredDates: e.target.value})} 
-                      className="w-full p-4 rounded-2xl border-2 border-slate-100 outline-none focus:border-indigo-600" 
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold ml-1">Full Address</label>
-                    <input 
-                      type="text" 
-                      required 
-                      value={formData.address} 
-                      onChange={e => setFormData({...formData, address: e.target.value})} 
-                      className="w-full p-4 rounded-2xl border-2 border-slate-100 outline-none focus:border-indigo-600" 
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold ml-1">The Issue</label>
-                    <textarea 
-                      required 
-                      rows="4" 
-                      placeholder="Briefly describe what needs fixing..." 
-                      value={formData.description} 
-                      onChange={e => setFormData({...formData, description: e.target.value})} 
-                      className="w-full p-4 rounded-2xl border-2 border-slate-100 outline-none focus:border-indigo-600 resize-none" 
-                    />
-                  </div>
-                  <button 
-                    disabled={isSubmitting} 
-                    className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-bold shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
-                  >
-                    {isSubmitting ? 'Submitting...' : 'Send Request'}
-                  </button>
-                </form>
-              </div>
-            )}
-          </>
-        )}
-
-        {view === 'profile' && (
-          <div className="p-6 space-y-6 animate-in slide-in-from-right-4 duration-300">
-            <h1 className="text-2xl font-bold mb-6">Settings</h1>
-            
-            <div className="bg-white rounded-3xl p-6 border border-slate-50 shadow-sm space-y-6">
-              <div className="flex justify-between items-center pb-4 border-b border-slate-50">
-                <h3 className="font-bold text-slate-800">My Info</h3>
-                <button 
-                  onClick={() => setView('profile-setup')} 
-                  className="text-xs text-indigo-600 font-bold bg-indigo-50 px-3 py-1.5 rounded-full"
-                >
-                  Edit
-                </button>
-              </div>
-              <div className="space-y-4 text-sm font-bold text-slate-600">
-                <div className="flex items-center gap-3">
-                  <UserCircle size={18} className="text-indigo-500" />
-                  <span>{userProfile?.fullName || 'Not set'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone size={18} className="text-indigo-500" />
-                  <span>{userProfile?.phone || 'Not set'}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <MapPin size={18} className="text-indigo-500" />
-                  <span>{userProfile?.address || 'Not set'}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-3xl p-6 border border-slate-50 shadow-sm">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <p className="font-bold text-slate-800">Staff Mode</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
-                    Access {companyProfile.name}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => { 
-                    setIsStaffMode(!isStaffMode); 
-                    setView('home'); 
-                  }} 
-                  className={`w-14 h-7 rounded-full relative transition-colors ${
-                    isStaffMode ? 'bg-slate-800' : 'bg-slate-200'
-                  }`}
-                >
-                  <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${
-                    isStaffMode ? 'right-1' : 'left-1'
-                  }`}></div>
-                </button>
-              </div>
-              {isStaffMode && (
-                <div className="pt-6 border-t border-slate-50 animate-in fade-in">
-                  <div className="flex justify-between items-center mb-4">
-                    <h4 className="font-bold text-xs uppercase text-slate-400">Company Identity</h4>
-                    <button 
-                      onClick={() => setView('company-setup')} 
-                      className="text-indigo-600 font-bold text-xs"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl">
-                    <div className="h-12 w-12 bg-white rounded-xl flex items-center justify-center overflow-hidden border border-slate-100 shrink-0">
-                      {companyProfile.logoUrl ? (
-                        <img src={companyProfile.logoUrl} className="w-full h-full object-cover" alt="Company" />
-                      ) : (
-                        <Building2 size={24} />
-                      )}
-                    </div>
-                    <div className="overflow-hidden">
-                      <p className="font-bold text-sm truncate">{companyProfile.name}</p>
-                      <p className="text-[10px] font-bold text-slate-400 truncate">
-                        {companyProfile.email || 'No email set'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* Nav Bar */}
-      {!['new-request', 'profile-setup', 'company-setup'].includes(view) && (
-        <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 px-6 py-5 flex justify-around items-center z-50 rounded-t-[2.5rem] shadow-2xl">
-          {!isStaffMode ? (
-            <>
-              <button 
-                onClick={() => setView('home')} 
-                className={`flex flex-col items-center gap-1.5 transition-all ${
-                  view === 'home' ? 'text-indigo-600' : 'text-slate-300'
-                }`}
-              >
-                <Home size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">Home</span>
-              </button>
-              <button 
-                onClick={() => setView('customer-inbox')} 
-                className={`flex flex-col items-center gap-1.5 relative transition-all ${
-                  view === 'customer-inbox' ? 'text-indigo-600' : 'text-slate-300'
-                }`}
-              >
-                <Inbox size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">Inbox</span>
-                {customerInboxCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] h-4 w-4 rounded-full flex items-center justify-center font-black animate-bounce ring-2 ring-white">
-                    {customerInboxCount}
-                  </span>
-                )}
-              </button>
-              <button 
-                onClick={() => setView('new-request')} 
-                className="flex flex-col items-center gap-1.5 -translate-y-8 group"
-              >
-                <div className="bg-indigo-600 text-white p-4 rounded-2xl shadow-xl shadow-indigo-200 group-active:scale-90 transition-transform">
-                  <Plus size={28} strokeWidth={3}/>
-                </div>
-              </button>
-              <button 
-                onClick={() => setView('list')} 
-                className={`flex flex-col items-center gap-1.5 transition-all ${
-                  view === 'list' ? 'text-indigo-600' : 'text-slate-300'
-                }`}
-              >
-                <List size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">History</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button 
-                onClick={() => setView('home')} 
-                className={`flex flex-col items-center gap-1.5 transition-all ${
-                  view === 'home' ? 'text-slate-800' : 'text-slate-300'
-                }`}
-              >
-                <Home size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">Stats</span>
-              </button>
-              <button 
-                onClick={() => setView('admin-inbox')} 
-                className={`flex flex-col items-center gap-1.5 relative transition-all ${
-                  view === 'admin-inbox' ? 'text-slate-800' : 'text-slate-300'
-                }`}
-              >
-                <Inbox size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">Inbox</span>
-                {pendingCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[8px] h-4 w-4 rounded-full flex items-center justify-center font-black ring-2 ring-white">
-                    {pendingCount}
-                  </span>
-                )}
-              </button>
-              <button className="flex flex-col items-center gap-1.5 text-slate-300">
-                <ClipboardList size={22} strokeWidth={2.5}/>
-                <span className="text-[9px] font-extrabold uppercase tracking-tighter">Jobs</span>
-              </button>
-            </>
-          )}
-          <button 
-            onClick={() => setView('profile')} 
-            className={`flex flex-col items-center gap-1.5 transition-all ${
-              view === 'profile' ? (isStaffMode ? 'text-slate-800' : 'text-indigo-600') : 'text-slate-300'
-            }`}
+  // Admin Prompt Modal
+  const AdminPromptModal = () => (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+        <h2 className="text-lg font-bold text-slate-900 mb-4">Admin Access</h2>
+        <input
+          type="password"
+          value={adminCode}
+          onChange={(e) => setAdminCode(e.target.value)}
+          placeholder="Enter admin code"
+          className="w-full p-4 rounded-xl border border-slate-200 outline-none mb-4"
+          onKeyPress={(e) => e.key === 'Enter' && handleAdminAccess()}
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setShowAdminPrompt(false);
+              setAdminCode('');
+            }}
+            className="flex-1 py-3 rounded-xl bg-slate-100 font-bold text-slate-600"
           >
-            <User size={22} strokeWidth={2.5}/>
-            <span className="text-[9px] font-extrabold uppercase tracking-tighter">Profile</span>
+            Cancel
           </button>
-        </nav>
-      )}
+          <button
+            onClick={handleAdminAccess}
+            className="flex-1 py-3 rounded-xl bg-purple-600 font-bold text-white"
+          >
+            Enter
+          </button>
+        </div>
+      </div>
     </div>
+  );
+
+  return (
+    <>
+      {appState === 'landing' && (
+        <LandingPage 
+          onGetStarted={() => setAppState('auth')} 
+        />
+      )}
+
+      {appState === 'auth' && (
+        <AuthPage 
+          onBack={() => setAppState('landing')}
+          onAuthSuccess={() => {}} // Auth state listener handles this
+        />
+      )}
+
+      {appState === 'profile-setup' && user && (
+        <ProfileSetup
+          user={user}
+          initialData={userProfile}
+          onComplete={() => setAppState('app')}
+        />
+      )}
+
+      {appState === 'app' && user && userProfile && (
+        <CustomerApp
+          user={user}
+          userProfile={userProfile}
+          requests={requests}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {appState === 'admin' && (
+        <AdminDashboard onExit={() => setAppState(user ? 'app' : 'landing')} />
+      )}
+
+      {/* Admin Access Button - shown on landing page */}
+      {appState === 'landing' && (
+        <button
+          onClick={() => setShowAdminPrompt(true)}
+          className="fixed bottom-6 right-6 bg-slate-800 text-white p-3 rounded-full shadow-lg"
+        >
+          <ShieldCheck size={20} />
+        </button>
+      )}
+
+      {showAdminPrompt && <AdminPromptModal />}
+    </>
   );
 }
 
