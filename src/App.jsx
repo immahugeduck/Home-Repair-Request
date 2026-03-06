@@ -38,20 +38,27 @@ import {
   UserCircle,
   Calendar,
   MessageSquare,
-  Building2
+  Building2,
+  AlertTriangle,
+  Settings,
+  RefreshCw
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
 let firebaseConfig = {};
-let app, auth, db;
+let app = null;
+let auth = null;
+let db = null;
 let firebaseInitError = null;
 
 try {
-  firebaseConfig = JSON.parse(__firebase_config || '{}');
+  // Handle case where __firebase_config might not be defined
+  const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+  firebaseConfig = JSON.parse(configString);
   
   // Validate Firebase config has required fields
   if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-    firebaseInitError = 'Firebase configuration is incomplete. Please add environment variables.';
+    firebaseInitError = 'Firebase configuration is incomplete. Please add the required environment variables.';
     console.warn(firebaseInitError);
   } else {
     app = initializeApp(firebaseConfig);
@@ -112,15 +119,20 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
-            <div className="text-red-500 mb-4">⚠️</div>
-            <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
-            <p className="text-slate-600 text-sm mb-4">Please refresh the page to try again.</p>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+          <div className="bg-white rounded-3xl p-10 max-w-md text-center shadow-xl border border-slate-100">
+            <div className="bg-red-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle size={40} className="text-red-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-3">Something went wrong</h2>
+            <p className="text-slate-500 text-sm mb-6 leading-relaxed">
+              An unexpected error occurred. Please try refreshing the page to continue.
+            </p>
             <button 
               onClick={() => window.location.reload()} 
-              className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold"
+              className="bg-slate-800 text-white px-8 py-3.5 rounded-xl font-bold inline-flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-lg"
             >
+              <RefreshCw size={18} />
               Refresh Page
             </button>
           </div>
@@ -365,6 +377,12 @@ function App() {
 
   // --- Auth & Data Listeners ---
   useEffect(() => {
+    // Skip auth initialization if Firebase isn't configured
+    if (firebaseInitError || !auth) {
+      setLoading(false);
+      return;
+    }
+    
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -388,7 +406,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    // Skip if no user or Firebase isn't configured
+    if (!user || !db) return;
     
     // User Profile Listener
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
@@ -582,21 +601,62 @@ function App() {
 
   if (firebaseInitError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
-          <div className="text-red-500 text-4xl mb-4">⚠️</div>
-          <h2 className="text-xl font-bold mb-2">Configuration Error</h2>
-          <p className="text-slate-600 text-sm mb-4">{firebaseInitError}</p>
-          <p className="text-slate-500 text-xs mb-6">Please configure Firebase environment variables.</p>
-          <code className="text-[11px] bg-slate-100 p-3 rounded-lg block text-left text-slate-700 font-mono mb-4 overflow-auto max-h-24">
-            VITE_FIREBASE_CONFIG environment variable
-          </code>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 p-6">
+        <div className="bg-white rounded-3xl p-10 max-w-lg text-center shadow-xl border border-slate-100">
+          {/* Icon */}
+          <div className="bg-amber-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8">
+            <Settings size={44} className="text-amber-600" />
+          </div>
+          
+          {/* Header */}
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">Setup Required</h1>
+          <p className="text-slate-500 mb-8 leading-relaxed">
+            HomeFix needs to be connected to Firebase to store repair requests and user data.
+          </p>
+          
+          {/* Error Details */}
+          <div className="bg-slate-50 rounded-2xl p-5 mb-6 text-left border border-slate-100">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="text-amber-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-slate-700 mb-1">Configuration Issue</p>
+                <p className="text-xs text-slate-500">{firebaseInitError}</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Instructions */}
+          <div className="bg-indigo-50 rounded-2xl p-5 mb-8 text-left border border-indigo-100">
+            <p className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-3">What you need to do:</p>
+            <ol className="text-sm text-indigo-900 space-y-2">
+              <li className="flex items-start gap-2">
+                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">1</span>
+                <span>Create a Firebase project at <span className="font-semibold">console.firebase.google.com</span></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">2</span>
+                <span>Enable Firestore and Anonymous Authentication</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="bg-indigo-200 text-indigo-800 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center shrink-0">3</span>
+                <span>Add your Firebase config as <code className="bg-indigo-200/50 px-1.5 py-0.5 rounded font-mono text-xs">VITE_FIREBASE_CONFIG</code></span>
+              </li>
+            </ol>
+          </div>
+          
+          {/* Action Button */}
           <button 
             onClick={() => window.location.reload()} 
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm"
+            className="bg-indigo-600 text-white px-8 py-3.5 rounded-xl font-bold inline-flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
           >
+            <RefreshCw size={18} />
             Try Again
           </button>
+          
+          {/* Footer Note */}
+          <p className="text-xs text-slate-400 mt-6">
+            Running locally? Check your <code className="font-mono">.env</code> file.
+          </p>
         </div>
       </div>
     );
