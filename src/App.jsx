@@ -1496,6 +1496,7 @@ function App() {
   const [appState, setAppState] = useState('landing'); // 'landing', 'auth', 'profile-setup', 'app', 'admin'
   const [showAdminPrompt, setShowAdminPrompt] = useState(false);
   const [adminCode, setAdminCode] = useState('');
+  const [adminError, setAdminError] = useState(false);
 
   // Auth listener
   useEffect(() => {
@@ -1539,11 +1540,18 @@ function App() {
       }
     });
 
-    // User's requests listener
+    // User's requests listener - filter client-side to avoid needing composite index
     const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
-    const q = query(requestsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
-    const unsubscribeRequests = onSnapshot(q, (snapshot) => {
-      setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubscribeRequests = onSnapshot(requestsRef, (snapshot) => {
+      const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const userDocs = allDocs
+        .filter(doc => doc.userId === user.uid)
+        .sort((a, b) => {
+          const timeA = a.createdAt?.toMillis?.() || 0;
+          const timeB = b.createdAt?.toMillis?.() || 0;
+          return timeB - timeA;
+        });
+      setRequests(userDocs);
     });
 
     return () => {
@@ -1565,8 +1573,9 @@ function App() {
       setAppState('admin');
       setShowAdminPrompt(false);
       setAdminCode('');
+      setAdminError(false);
     } else {
-      alert('Invalid admin code');
+      setAdminError(true);
     }
   };
 
@@ -1593,39 +1602,61 @@ function App() {
     );
   }
 
-  // Admin Prompt Modal
-  const AdminPromptModal = () => (
+  // Admin prompt modal rendered inline (not as component to avoid re-mount on state change)
+  const adminPromptModal = showAdminPrompt ? (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+      <form 
+        className="bg-white rounded-2xl p-6 w-full max-w-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleAdminAccess();
+        }}
+      >
         <h2 className="text-lg font-bold text-slate-900 mb-4">Admin Access</h2>
+        {adminError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl mb-4 text-sm">
+            Invalid admin code
+          </div>
+        )}
         <input
           type="password"
           value={adminCode}
-          onChange={(e) => setAdminCode(e.target.value)}
+          onChange={(e) => {
+            setAdminCode(e.target.value);
+            setAdminError(false);
+          }}
           placeholder="Enter admin code"
-          className="w-full p-4 rounded-xl border border-slate-200 outline-none mb-4"
-          onKeyPress={(e) => e.key === 'Enter' && handleAdminAccess()}
+          className={`w-full p-4 rounded-xl border outline-none mb-4 text-base ${
+            adminError ? 'border-red-300 bg-red-50' : 'border-slate-200'
+          }`}
+          autoFocus
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck="false"
         />
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => {
               setShowAdminPrompt(false);
               setAdminCode('');
+              setAdminError(false);
             }}
             className="flex-1 py-3 rounded-xl bg-slate-100 font-bold text-slate-600"
           >
             Cancel
           </button>
           <button
-            onClick={handleAdminAccess}
+            type="submit"
             className="flex-1 py-3 rounded-xl bg-purple-600 font-bold text-white"
           >
             Enter
           </button>
         </div>
-      </div>
+      </form>
     </div>
-  );
+  ) : null;
 
   return (
     <>
@@ -1673,7 +1704,7 @@ function App() {
         </button>
       )}
 
-      {showAdminPrompt && <AdminPromptModal />}
+      {adminPromptModal}
     </>
   );
 }
