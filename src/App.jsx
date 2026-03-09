@@ -1907,7 +1907,7 @@ function App() {
   );
 }
 
-// Wrap with Error Boundary
+// Wrap with Error Boundary for graceful error handling
 export default function WrappedApp() {
   return (
     <ErrorBoundary>
