@@ -123,6 +123,26 @@ const STATUS_MAP = {
   completed: { label: 'Completed', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
+// Email notification helper
+const sendNotification = async ({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }) => {
+  try {
+    const response = await fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('Notification failed:', data);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Notification error:', error);
+    return false;
+  }
+};
+
 const Badge = ({ children, className }) => (
   <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${className}`}>
     {children}
@@ -193,6 +213,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
       {/* Hero */}
       <main className="flex-1 flex flex-col">
         <div className="px-6 py-12 flex-1 flex flex-col justify-center">
+          <p className="text-purple-600 font-bold text-lg mb-2 tracking-wide">First Call Maintenance</p>
           <h1 className="text-4xl font-black text-slate-900 mb-4 leading-tight">
             Home Repairs<br/>
             <span className="text-purple-600">Made Simple</span>
@@ -704,6 +725,13 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         createdAt: serverTimestamp()
       });
 
+      // Send email notification to admin
+      sendNotification({
+        type: 'new_request',
+        to: COMPANY.email,
+        customerName: userProfile.fullName,
+      });
+
       // Reset form
       setFormData({
         category: 'general',
@@ -735,6 +763,15 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         isAdmin: false,
         createdAt: serverTimestamp()
       });
+      
+      // Notify admin of customer message
+      sendNotification({
+        type: 'new_message',
+        to: COMPANY.email,
+        adminMessage: messageText,
+        customerName: userProfile.fullName,
+      });
+      
       setMessageText('');
     } catch (error) {
       console.error('Send message error:', error);
@@ -1422,6 +1459,16 @@ const AdminDashboard = ({ onExit }) => {
       createdAt: serverTimestamp()
     });
 
+    // Send email notification to customer
+    if (selectedRequest.userEmail) {
+      sendNotification({
+        type: 'request_scheduled',
+        to: selectedRequest.userEmail,
+        scheduledTime: scheduleTime,
+        customerName: selectedRequest.userName,
+      });
+    }
+
     setScheduleTime('');
   };
 
@@ -1440,6 +1487,17 @@ const AdminDashboard = ({ onExit }) => {
         isAdmin: true,
         createdAt: serverTimestamp()
       });
+      
+      // Send email notification to customer
+      if (selectedRequest.userEmail) {
+        sendNotification({
+          type: 'new_message',
+          to: selectedRequest.userEmail,
+          adminMessage: messageText,
+          customerName: selectedRequest.userName,
+        });
+      }
+      
       setMessageText('');
     } catch (error) {
       console.error('Send message error:', error);
