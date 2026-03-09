@@ -1569,6 +1569,9 @@ function App() {
   };
 
   const handleAdminAccess = () => {
+    console.log("[v0] Admin code entered:", adminCode);
+    console.log("[v0] Expected code:", ADMIN_CODE);
+    console.log("[v0] Match:", adminCode === ADMIN_CODE);
     if (adminCode === ADMIN_CODE) {
       setAppState('admin');
       setShowAdminPrompt(false);
