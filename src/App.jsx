@@ -104,7 +104,7 @@ const COMPANY = {
   logo: '/logo.jpeg'
 };
 
-// Admin Code (you can change this)
+// Admin Code - Change this to your preferred code
 const ADMIN_CODE = 'fcm2024';
 
 // --- Constants & Helpers ---
