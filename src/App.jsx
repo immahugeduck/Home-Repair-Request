@@ -598,6 +598,10 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   const [view, setView] = useState('home');
   const [selectedRequest, setSelectedRequest] = useState(null);
   
+  const [showAddAddress, setShowAddAddress] = useState(false);
+  const [newAddressLabel, setNewAddressLabel] = useState('');
+  const [newAddressText, setNewAddressText] = useState('');
+  
   // Get addresses array (support legacy single address and new multiple addresses)
   const addresses = useMemo(() => {
     if (userProfile?.addresses && Array.isArray(userProfile.addresses)) {
@@ -610,15 +614,18 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
     return [];
   }, [userProfile]);
   
-  const [selectedAddressId, setSelectedAddressId] = useState(
-    userProfile?.selectedAddressId || addresses[0]?.id || ''
-  );
-  const [showAddAddress, setShowAddAddress] = useState(false);
-  const [newAddressLabel, setNewAddressLabel] = useState('');
-  const [newAddressText, setNewAddressText] = useState('');
+  // Track selected address - default to first address or profile's selected
+  const [selectedAddressId, setSelectedAddressId] = useState('');
+  
+  // Update selectedAddressId when addresses change
+  useEffect(() => {
+    if (addresses.length > 0 && !selectedAddressId) {
+      setSelectedAddressId(userProfile?.selectedAddressId || addresses[0]?.id || '');
+    }
+  }, [addresses, userProfile?.selectedAddressId, selectedAddressId]);
   
   const selectedAddress = useMemo(() => {
-    return addresses.find(a => a.id === selectedAddressId) || addresses[0];
+    return addresses.find(a => a.id === selectedAddressId) || addresses[0] || null;
   }, [addresses, selectedAddressId]);
   
   const [formData, setFormData] = useState({
