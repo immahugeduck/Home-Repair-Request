@@ -101,10 +101,10 @@ const COMPANY = {
   phone1: '765-246-4405',
   phone2: '765-770-6076',
   email: 'zak@firstcallmaintenance.biz',
-  logo: '/logo.jpeg'
+  logo: '/logo.png'
 };
 
-// Admin Code (you can change this)
+// Admin Code - Change this to your preferred code
 const ADMIN_CODE = 'fcm2024';
 
 // --- Constants & Helpers ---
@@ -175,12 +175,12 @@ class ErrorBoundary extends React.Component {
 // ============================================
 // LANDING PAGE
 // ============================================
-const LandingPage = ({ onGetStarted }) => {
+const LandingPage = ({ onGetStarted, onLogin }) => {
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between border-b border-slate-100">
-        <img src={COMPANY.logo} alt={COMPANY.name} className="h-12 object-contain" />
+        <img src={COMPANY.logo} alt={COMPANY.name} className="h-16 object-contain" />
         <a 
           href={`tel:${COMPANY.phone1.replace(/-/g, '')}`}
           className="bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2"
@@ -208,6 +208,16 @@ const LandingPage = ({ onGetStarted }) => {
             Submit a Request
             <ArrowRight size={22} />
           </button>
+          
+          <p className="text-slate-500 mt-4 text-center max-w-sm">
+            Already have an account?{' '}
+            <button 
+              onClick={onLogin}
+              className="text-purple-600 font-bold hover:underline"
+            >
+              Log in here
+            </button>
+          </p>
         </div>
 
         {/* Services Preview */}
@@ -416,7 +426,7 @@ const AuthPage = ({ onBack, onAuthSuccess }) => {
 const ProfileSetup = ({ user, onComplete, initialData }) => {
   const [fullName, setFullName] = useState(initialData?.fullName || '');
   const [phone, setPhone] = useState(initialData?.phone || '');
-  const [address, setAddress] = useState(initialData?.address || '');
+  const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -428,7 +438,8 @@ const ProfileSetup = ({ user, onComplete, initialData }) => {
       await setDoc(profileRef, {
         fullName,
         phone,
-        address,
+        addresses: [{ id: Date.now().toString(), label: 'Primary', address }],
+        selectedAddressId: Date.now().toString(),
         email: user.email,
         updatedAt: serverTimestamp()
       });
@@ -482,7 +493,7 @@ const ProfileSetup = ({ user, onComplete, initialData }) => {
           </div>
 
           <div>
-            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Home Address</label>
+            <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Property Address</label>
             <textarea
               required
               value={address}
@@ -491,6 +502,7 @@ const ProfileSetup = ({ user, onComplete, initialData }) => {
               className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-base resize-none"
               placeholder="123 Main St, City, State ZIP"
             />
+            <p className="text-xs text-slate-400 mt-1.5 ml-1">You can add more addresses later from your profile.</p>
           </div>
 
           <button
@@ -585,6 +597,37 @@ const PhotoUploader = ({ photos, setPhotos, maxPhotos = 5 }) => {
 const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   const [view, setView] = useState('home');
   const [selectedRequest, setSelectedRequest] = useState(null);
+  
+  const [showAddAddress, setShowAddAddress] = useState(false);
+  const [newAddressLabel, setNewAddressLabel] = useState('');
+  const [newAddressText, setNewAddressText] = useState('');
+  
+  // Get addresses array (support legacy single address and new multiple addresses)
+  const addresses = useMemo(() => {
+    if (userProfile?.addresses && Array.isArray(userProfile.addresses)) {
+      return userProfile.addresses;
+    }
+    // Legacy support: convert single address to array
+    if (userProfile?.address) {
+      return [{ id: 'legacy', label: 'Primary', address: userProfile.address }];
+    }
+    return [];
+  }, [userProfile]);
+  
+  // Track selected address - default to first address or profile's selected
+  const [selectedAddressId, setSelectedAddressId] = useState('');
+  
+  // Update selectedAddressId when addresses change
+  useEffect(() => {
+    if (addresses.length > 0 && !selectedAddressId) {
+      setSelectedAddressId(userProfile?.selectedAddressId || addresses[0]?.id || '');
+    }
+  }, [addresses, userProfile?.selectedAddressId, selectedAddressId]);
+  
+  const selectedAddress = useMemo(() => {
+    return addresses.find(a => a.id === selectedAddressId) || addresses[0] || null;
+  }, [addresses, selectedAddressId]);
+  
   const [formData, setFormData] = useState({
     category: 'general',
     description: '',
@@ -596,8 +639,7 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     fullName: userProfile?.fullName || '',
-    phone: userProfile?.phone || '',
-    address: userProfile?.address || ''
+    phone: userProfile?.phone || ''
   });
 
   // Messages listener for selected request
@@ -652,7 +694,8 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         description: formData.description,
         preferredTime: formData.preferredTime,
         photos: photoUrls,
-        address: userProfile.address,
+        address: selectedAddress?.address || userProfile?.address || '',
+        addressLabel: selectedAddress?.label || 'Primary',
         userId: user.uid,
         userName: userProfile.fullName,
         userPhone: userProfile.phone,
@@ -704,13 +747,44 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
       const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
       await setDoc(profileRef, {
         ...profileForm,
+        addresses: userProfile?.addresses || addresses,
+        selectedAddressId: userProfile?.selectedAddressId || selectedAddressId,
         email: user.email,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true });
       setEditingProfile(false);
     } catch (error) {
       console.error('Save profile error:', error);
       alert('Failed to save profile.');
+    }
+  };
+
+  const handleAddAddress = async () => {
+    if (!newAddressText.trim()) return;
+    
+    const newAddress = {
+      id: Date.now().toString(),
+      label: newAddressLabel.trim() || `Address ${addresses.length + 1}`,
+      address: newAddressText.trim()
+    };
+    
+    const updatedAddresses = [...addresses, newAddress];
+    
+    try {
+      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+      await setDoc(profileRef, {
+        addresses: updatedAddresses,
+        selectedAddressId: newAddress.id,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      
+      setSelectedAddressId(newAddress.id);
+      setShowAddAddress(false);
+      setNewAddressLabel('');
+      setNewAddressText('');
+    } catch (error) {
+      console.error('Add address error:', error);
+      alert('Failed to add address.');
     }
   };
 
@@ -968,21 +1042,99 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
                 />
               </div>
 
-              {/* Address Display */}
+              {/* Address Selection */}
               <div className="bg-slate-50 p-4 rounded-xl">
-                <div className="flex items-center gap-2 text-sm text-slate-500 mb-1">
-                  <MapPin size={14} />
-                  <span className="font-bold">Service Address</span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <MapPin size={14} />
+                    <span className="font-bold">Service Address</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAddress(true)}
+                    className="text-purple-600 text-xs font-bold flex items-center gap-1"
+                  >
+                    <Plus size={14} />
+                    Add New
+                  </button>
                 </div>
-                <p className="text-slate-700">{userProfile?.address}</p>
-                <button
-                  type="button"
-                  onClick={() => setView('profile')}
-                  className="text-purple-600 text-sm font-bold mt-2"
-                >
-                  Change address
-                </button>
+                
+                {addresses.length > 1 ? (
+                  <select
+                    value={selectedAddressId}
+                    onChange={(e) => setSelectedAddressId(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-700 font-medium text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    {addresses.map(addr => (
+                      <option key={addr.id} value={addr.id}>
+                        {addr.label}: {addr.address.substring(0, 40)}{addr.address.length > 40 ? '...' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-slate-700">{selectedAddress?.address || userProfile?.address}</p>
+                )}
               </div>
+              
+              {/* Add Address Modal */}
+              {showAddAddress && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-slate-900">Add New Address</h2>
+                      <button 
+                        type="button"
+                        onClick={() => setShowAddAddress(false)}
+                        className="p-2 hover:bg-slate-100 rounded-full"
+                      >
+                        <X size={20} className="text-slate-500" />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Address Label</label>
+                        <input
+                          type="text"
+                          value={newAddressLabel}
+                          onChange={(e) => setNewAddressLabel(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-purple-500 text-base"
+                          placeholder="e.g., Rental Unit 1, Downtown Office"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="text-sm font-bold text-slate-700 ml-1 block mb-1.5">Full Address</label>
+                        <textarea
+                          value={newAddressText}
+                          onChange={(e) => setNewAddressText(e.target.value)}
+                          rows={3}
+                          className="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-purple-500 text-base resize-none"
+                          placeholder="123 Main St, City, State ZIP"
+                        />
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddAddress(false)}
+                          className="flex-1 py-3 rounded-xl bg-slate-100 font-bold text-slate-600"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddAddress}
+                          disabled={!newAddressText.trim()}
+                          className="flex-1 py-3 rounded-xl bg-purple-600 font-bold text-white disabled:opacity-50"
+                        >
+                          Add Address
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -1046,6 +1198,7 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
           <div className="p-6">
             <h1 className="text-xl font-bold text-slate-900 mb-6">My Profile</h1>
 
+            {/* Contact Information */}
             <div className="bg-white rounded-2xl p-5 border border-slate-100 mb-4">
               <div className="flex justify-between items-start mb-4">
                 <h2 className="font-bold text-slate-800">Contact Information</h2>
@@ -1073,13 +1226,6 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
                     className="w-full p-3 rounded-xl border border-slate-200 outline-none"
                     placeholder="Phone"
                   />
-                  <textarea
-                    value={profileForm.address}
-                    onChange={(e) => setProfileForm({...profileForm, address: e.target.value})}
-                    rows={2}
-                    className="w-full p-3 rounded-xl border border-slate-200 outline-none resize-none"
-                    placeholder="Address"
-                  />
                   <button
                     type="submit"
                     className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold"
@@ -1101,12 +1247,63 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
                     <Phone size={18} className="text-purple-500" />
                     <span className="text-slate-700">{userProfile?.phone}</span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <MapPin size={18} className="text-purple-500 mt-0.5" />
-                    <span className="text-slate-700">{userProfile?.address}</span>
-                  </div>
                 </div>
               )}
+            </div>
+            
+            {/* Addresses Section */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 mb-4">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="font-bold text-slate-800">My Addresses</h2>
+                <button
+                  onClick={() => setShowAddAddress(true)}
+                  className="text-purple-600 text-sm font-bold flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {addresses.map(addr => (
+                  <div 
+                    key={addr.id} 
+                    className={`p-3 rounded-xl border ${
+                      selectedAddressId === addr.id 
+                        ? 'border-purple-300 bg-purple-50' 
+                        : 'border-slate-100 bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{addr.label}</p>
+                        <p className="text-slate-600 text-sm">{addr.address}</p>
+                      </div>
+                      {selectedAddressId === addr.id && (
+                        <span className="text-xs font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    {selectedAddressId !== addr.id && (
+                      <button
+                        onClick={async () => {
+                          setSelectedAddressId(addr.id);
+                          const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+                          await setDoc(profileRef, { selectedAddressId: addr.id }, { merge: true });
+                        }}
+                        className="text-purple-600 text-xs font-bold mt-2"
+                      >
+                        Set as default
+                      </button>
+                    )}
+                  </div>
+                ))}
+                
+                {addresses.length === 0 && (
+                  <p className="text-slate-400 text-sm text-center py-4">No addresses yet</p>
+                )}
+              </div>
             </div>
 
             <button
@@ -1660,9 +1857,10 @@ function App() {
 
   return (
     <>
-      {appState === 'landing' && (
-        <LandingPage 
-          onGetStarted={() => setAppState('auth')} 
+{appState === 'landing' && (
+        <LandingPage
+          onGetStarted={() => setAppState('auth')}
+          onLogin={() => setAppState('auth')}
         />
       )}
 
