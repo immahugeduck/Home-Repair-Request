@@ -101,7 +101,7 @@ const COMPANY = {
   phone1: '765-246-4405',
   phone2: '765-770-6076',
   email: 'zak@firstcallmaintenance.biz',
-  logo: '/logo.jpeg'
+  logo: '/logo.png'
 };
 
 // Admin Code - Change this to your preferred code
