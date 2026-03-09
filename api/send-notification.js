@@ -126,6 +126,13 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Use Resend's default domain until custom domain is verified
+    // To use your own domain (notifications@firstcallmaintenance.biz), 
+    // verify your domain at https://resend.com/domains
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'First Call Maintenance <onboarding@resend.dev>';
+    
+    console.log('[v0] Sending email notification:', { type, to, fromEmail });
+    
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -133,7 +140,7 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'First Call Maintenance <notifications@firstcallmaintenance.biz>',
+        from: fromEmail,
         to: [to],
         subject: emailSubject,
         html: emailHtml,
@@ -141,6 +148,8 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
+    
+    console.log('[v0] Resend API response:', { status: response.status, data });
 
     if (!response.ok) {
       console.error('Resend API error:', data);
@@ -150,6 +159,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, messageId: data.id });
   } catch (error) {
     console.error('Email send error:', error);
-    return res.status(500).json({ error: 'Failed to send email' });
+    return res.status(500).json({ error: 'Failed to send email', message: error.message });
   }
 }
