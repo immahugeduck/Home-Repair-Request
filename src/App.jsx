@@ -21,12 +21,6 @@ import {
   where
 } from 'firebase/firestore';
 import { 
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL
-} from 'firebase/storage';
-import { 
   Plus, 
   Wrench, 
   Droplets, 
@@ -79,14 +73,12 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
-let storage = null;
 let firebaseInitError = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  storage = getStorage(app);
 } catch (error) {
   firebaseInitError = `Firebase initialization error: ${error.message}`;
   console.error(firebaseInitError);
@@ -121,6 +113,26 @@ const STATUS_MAP = {
   scheduled: { label: 'Scheduled', icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
   in_progress: { label: 'In Progress', icon: PlayCircle, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
   completed: { label: 'Completed', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+};
+
+// Email notification helper
+const sendNotification = async ({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }) => {
+  try {
+    const response = await fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('Notification failed:', data);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Notification error:', error);
+    return false;
+  }
 };
 
 const Badge = ({ children, className }) => (
@@ -193,6 +205,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
       {/* Hero */}
       <main className="flex-1 flex flex-col">
         <div className="px-6 py-12 flex-1 flex flex-col justify-center">
+          <p className="text-purple-600 font-bold text-lg mb-2 tracking-wide">First Call Maintenance</p>
           <h1 className="text-4xl font-black text-slate-900 mb-4 leading-tight">
             Home Repairs<br/>
             <span className="text-purple-600">Made Simple</span>
@@ -628,11 +641,10 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
     return addresses.find(a => a.id === selectedAddressId) || addresses[0] || null;
   }, [addresses, selectedAddressId]);
   
-  const [formData, setFormData] = useState({
+const [formData, setFormData] = useState({
     category: 'general',
     description: '',
-    preferredTime: '',
-    photos: []
+    preferredTime: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [messageText, setMessageText] = useState('');
@@ -664,36 +676,43 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   }, [selectedRequest]);
 
   const uploadPhotos = async (photos) => {
-    const urls = [];
-    for (const photo of photos) {
-      if (photo.file) {
-        const fileName = `${user.uid}/${Date.now()}_${photo.file.name}`;
-        const storageRef = ref(storage, `repair-photos/${fileName}`);
-        await uploadBytes(storageRef, photo.file);
-        const url = await getDownloadURL(storageRef);
-        urls.push(url);
+    try {
+      const formData = new FormData();
+      for (const photo of photos) {
+        if (photo.file) {
+          formData.append('files', photo.file);
+        }
       }
+      
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.details || 'Upload failed');
+      }
+      
+      const data = await response.json();
+      return data.urls || [];
+    } catch (error) {
+      console.error('Photo upload error:', error);
+      throw error;
     }
-    return urls;
   };
 
-  const handleSubmitRequest = async (e) => {
+const handleSubmitRequest = async (e) => {
     e.preventDefault();
     setSubmitting(true);
 
     try {
-      // Upload photos first
-      let photoUrls = [];
-      if (formData.photos.length > 0) {
-        photoUrls = await uploadPhotos(formData.photos);
-      }
-
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
       await addDoc(requestsRef, {
         category: formData.category,
         description: formData.description,
         preferredTime: formData.preferredTime,
-        photos: photoUrls,
+        photos: [],
         address: selectedAddress?.address || userProfile?.address || '',
         addressLabel: selectedAddress?.label || 'Primary',
         userId: user.uid,
@@ -704,12 +723,18 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         createdAt: serverTimestamp()
       });
 
+      // Send email notification to admin
+      sendNotification({
+        type: 'new_request',
+        to: COMPANY.email,
+        customerName: userProfile.fullName,
+      });
+
       // Reset form
       setFormData({
         category: 'general',
         description: '',
-        preferredTime: '',
-        photos: []
+        preferredTime: ''
       });
       setView('list');
     } catch (error) {
@@ -735,6 +760,15 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         isAdmin: false,
         createdAt: serverTimestamp()
       });
+      
+      // Notify admin of customer message
+      sendNotification({
+        type: 'new_message',
+        to: COMPANY.email,
+        adminMessage: messageText,
+        customerName: userProfile.fullName,
+      });
+      
       setMessageText('');
     } catch (error) {
       console.error('Send message error:', error);
@@ -1021,13 +1055,6 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
                   placeholder="Tell us what's wrong..."
                 />
               </div>
-
-              {/* Photo Upload */}
-              <PhotoUploader
-                photos={formData.photos}
-                setPhotos={(photos) => setFormData({...formData, photos})}
-                maxPhotos={5}
-              />
 
               {/* Preferred Time */}
               <div>
@@ -1422,6 +1449,16 @@ const AdminDashboard = ({ onExit }) => {
       createdAt: serverTimestamp()
     });
 
+    // Send email notification to customer
+    if (selectedRequest.userEmail) {
+      sendNotification({
+        type: 'request_scheduled',
+        to: selectedRequest.userEmail,
+        scheduledTime: scheduleTime,
+        customerName: selectedRequest.userName,
+      });
+    }
+
     setScheduleTime('');
   };
 
@@ -1440,6 +1477,17 @@ const AdminDashboard = ({ onExit }) => {
         isAdmin: true,
         createdAt: serverTimestamp()
       });
+      
+      // Send email notification to customer
+      if (selectedRequest.userEmail) {
+        sendNotification({
+          type: 'new_message',
+          to: selectedRequest.userEmail,
+          adminMessage: messageText,
+          customerName: selectedRequest.userName,
+        });
+      }
+      
       setMessageText('');
     } catch (error) {
       console.error('Send message error:', error);
