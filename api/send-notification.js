@@ -131,8 +131,6 @@ export default async function handler(req, res) {
     // verify your domain at https://resend.com/domains
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'First Call Maintenance <onboarding@resend.dev>';
     
-    console.log('[v0] Sending email notification:', { type, to, fromEmail });
-    
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -148,8 +146,6 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
-    
-    console.log('[v0] Resend API response:', { status: response.status, data });
 
     if (!response.ok) {
       console.error('Resend API error:', data);
