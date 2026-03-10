@@ -21,12 +21,6 @@ import {
   where
 } from 'firebase/firestore';
 import { 
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL
-} from 'firebase/storage';
-import { 
   Plus, 
   Wrench, 
   Droplets, 
@@ -79,14 +73,12 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
-let storage = null;
 let firebaseInitError = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  storage = getStorage(app);
 } catch (error) {
   firebaseInitError = `Firebase initialization error: ${error.message}`;
   console.error(firebaseInitError);
@@ -685,34 +677,43 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   }, [selectedRequest]);
 
   const uploadPhotos = async (photos) => {
-    const urls = [];
-    for (const photo of photos) {
-      if (photo.file) {
-        const fileName = `${user.uid}/${Date.now()}_${photo.file.name}`;
-        const storageRef = ref(storage, `repair-photos/${fileName}`);
-        await uploadBytes(storageRef, photo.file);
-        const url = await getDownloadURL(storageRef);
-        urls.push(url);
+    try {
+      const formData = new FormData();
+      for (const photo of photos) {
+        if (photo.file) {
+          formData.append('files', photo.file);
+        }
       }
+      
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.details || 'Upload failed');
+      }
+      
+      const data = await response.json();
+      return data.urls || [];
+    } catch (error) {
+      console.error('Photo upload error:', error);
+      throw error;
     }
-    return urls;
   };
 
-  const handleSubmitRequest = async (e) => {
+const handleSubmitRequest = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    console.log("[v0] Starting request submission...");
 
     try {
       // Upload photos first
       let photoUrls = [];
       if (formData.photos.length > 0) {
-        console.log("[v0] Uploading photos...", formData.photos.length);
         photoUrls = await uploadPhotos(formData.photos);
-        console.log("[v0] Photos uploaded:", photoUrls);
       }
 
-      console.log("[v0] Adding document to Firestore...");
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
       await addDoc(requestsRef, {
         category: formData.category,
@@ -728,10 +729,8 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         status: 'pending',
         createdAt: serverTimestamp()
       });
-      console.log("[v0] Document added successfully");
 
-      // Send email notification to admin (don't await - fire and forget)
-      console.log("[v0] Sending notification...");
+      // Send email notification to admin
       sendNotification({
         type: 'new_request',
         to: COMPANY.email,
@@ -739,7 +738,6 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
       });
 
       // Reset form
-      console.log("[v0] Resetting form and switching view...");
       setFormData({
         category: 'general',
         description: '',
@@ -747,9 +745,8 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         photos: []
       });
       setView('list');
-      console.log("[v0] Request submission complete!");
     } catch (error) {
-      console.error('[v0] Submit error:', error);
+      console.error('Submit error:', error);
       alert('Failed to submit request. Please try again.');
     } finally {
       setSubmitting(false);
