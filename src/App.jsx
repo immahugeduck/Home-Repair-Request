@@ -701,14 +701,18 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
   const handleSubmitRequest = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+    console.log("[v0] Starting request submission...");
 
     try {
       // Upload photos first
       let photoUrls = [];
       if (formData.photos.length > 0) {
+        console.log("[v0] Uploading photos...", formData.photos.length);
         photoUrls = await uploadPhotos(formData.photos);
+        console.log("[v0] Photos uploaded:", photoUrls);
       }
 
+      console.log("[v0] Adding document to Firestore...");
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
       await addDoc(requestsRef, {
         category: formData.category,
@@ -724,8 +728,10 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         status: 'pending',
         createdAt: serverTimestamp()
       });
+      console.log("[v0] Document added successfully");
 
-      // Send email notification to admin
+      // Send email notification to admin (don't await - fire and forget)
+      console.log("[v0] Sending notification...");
       sendNotification({
         type: 'new_request',
         to: COMPANY.email,
@@ -733,6 +739,7 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
       });
 
       // Reset form
+      console.log("[v0] Resetting form and switching view...");
       setFormData({
         category: 'general',
         description: '',
@@ -740,8 +747,9 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
         photos: []
       });
       setView('list');
+      console.log("[v0] Request submission complete!");
     } catch (error) {
-      console.error('Submit error:', error);
+      console.error('[v0] Submit error:', error);
       alert('Failed to submit request. Please try again.');
     } finally {
       setSubmitting(false);
