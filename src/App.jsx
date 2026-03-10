@@ -641,11 +641,10 @@ const CustomerApp = ({ user, userProfile, requests, onLogout }) => {
     return addresses.find(a => a.id === selectedAddressId) || addresses[0] || null;
   }, [addresses, selectedAddressId]);
   
-  const [formData, setFormData] = useState({
+const [formData, setFormData] = useState({
     category: 'general',
     description: '',
-    preferredTime: '',
-    photos: []
+    preferredTime: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [messageText, setMessageText] = useState('');
@@ -708,18 +707,12 @@ const handleSubmitRequest = async (e) => {
     setSubmitting(true);
 
     try {
-      // Upload photos first
-      let photoUrls = [];
-      if (formData.photos.length > 0) {
-        photoUrls = await uploadPhotos(formData.photos);
-      }
-
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
       await addDoc(requestsRef, {
         category: formData.category,
         description: formData.description,
         preferredTime: formData.preferredTime,
-        photos: photoUrls,
+        photos: [],
         address: selectedAddress?.address || userProfile?.address || '',
         addressLabel: selectedAddress?.label || 'Primary',
         userId: user.uid,
@@ -741,8 +734,7 @@ const handleSubmitRequest = async (e) => {
       setFormData({
         category: 'general',
         description: '',
-        preferredTime: '',
-        photos: []
+        preferredTime: ''
       });
       setView('list');
     } catch (error) {
@@ -1063,13 +1055,6 @@ const handleSubmitRequest = async (e) => {
                   placeholder="Tell us what's wrong..."
                 />
               </div>
-
-              {/* Photo Upload */}
-              <PhotoUploader
-                photos={formData.photos}
-                setPhotos={(photos) => setFormData({...formData, photos})}
-                maxPhotos={5}
-              />
 
               {/* Preferred Time */}
               <div>
