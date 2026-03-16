@@ -730,6 +730,13 @@ const handleSubmitRequest = async (e) => {
         customerName: userProfile.fullName,
       });
 
+      // Send confirmation email to customer
+      sendNotification({
+        type: 'request_confirmation',
+        to: user.email,
+        customerName: userProfile.fullName,
+      });
+
       // Reset form
       setFormData({
         category: 'general',
@@ -767,6 +774,7 @@ const handleSubmitRequest = async (e) => {
         to: COMPANY.email,
         adminMessage: messageText,
         customerName: userProfile.fullName,
+        senderName: userProfile.fullName,
       });
       
       setMessageText('');
@@ -1485,6 +1493,7 @@ const AdminDashboard = ({ onExit }) => {
           to: selectedRequest.userEmail,
           adminMessage: messageText,
           customerName: selectedRequest.userName,
+          senderName: COMPANY.name,
         });
       }
       
