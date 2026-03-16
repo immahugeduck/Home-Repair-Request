@@ -1435,8 +1435,21 @@ const AdminDashboard = ({ onExit }) => {
     try {
       const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', requestId);
       await updateDoc(requestRef, { status, ...extraData });
+      return true;
     } catch (error) {
       console.error('Update status error:', error);
+      return false;
+    }
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!selectedRequest) return;
+    const success = await handleUpdateStatus(selectedRequest.id, 'completed');
+    if (success && selectedRequest.userEmail) {
+      sendNotification({
+        type: 'general_update',
+        to: selectedRequest.userEmail,
+      });
     }
   };
 
@@ -1460,10 +1473,8 @@ const AdminDashboard = ({ onExit }) => {
     // Send email notification to customer
     if (selectedRequest.userEmail) {
       sendNotification({
-        type: 'request_scheduled',
+        type: 'general_update',
         to: selectedRequest.userEmail,
-        scheduledTime: scheduleTime,
-        customerName: selectedRequest.userName,
       });
     }
 
@@ -1489,11 +1500,8 @@ const AdminDashboard = ({ onExit }) => {
       // Send email notification to customer
       if (selectedRequest.userEmail) {
         sendNotification({
-          type: 'new_message',
+          type: 'general_update',
           to: selectedRequest.userEmail,
-          adminMessage: messageText,
-          customerName: selectedRequest.userName,
-          senderName: COMPANY.name,
         });
       }
       
@@ -1604,7 +1612,7 @@ const AdminDashboard = ({ onExit }) => {
 
             {selectedRequest.status === 'in_progress' && (
               <button
-                onClick={() => handleUpdateStatus(selectedRequest.id, 'completed')}
+                onClick={handleMarkCompleted}
                 className="w-full bg-emerald-600 py-3 rounded-xl font-bold"
               >
                 Mark as Completed
