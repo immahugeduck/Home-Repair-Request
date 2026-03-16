@@ -161,6 +161,28 @@ export default async function handler(req, res) {
       `;
       break;
 
+    case 'general_update':
+      // Generic notification for any request update (new message, scheduled time, completion)
+      emailSubject = emailSubject || 'Your Repair Request Has Been Updated';
+      emailHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #9333ea; color: white; padding: 20px; text-align: center;">
+            <h1 style="margin: 0;">First Call Maintenance</h1>
+          </div>
+          <div style="padding: 30px; background: #f8fafc;">
+            <h2 style="color: #1e293b; margin-top: 0;">Request Updated</h2>
+            <p style="color: #64748b;">Your request has been updated. Log in to your account to view the details.</p>
+            <a href="${appUrl}" style="display: inline-block; background: #9333ea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 15px;">
+              Log In to View Details
+            </a>
+          </div>
+          <div style="padding: 20px; text-align: center; color: #94a3b8; font-size: 12px;">
+            First Call Maintenance - 765-246-4405
+          </div>
+        </div>
+      `;
+      break;
+
     default:
       return res.status(400).json({ error: 'Invalid notification type' });
   }
