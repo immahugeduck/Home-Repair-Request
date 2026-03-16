@@ -1,8 +1,8 @@
 // Test endpoint to verify API routes are working
-export default async function handler(req, res) {
-  console.log('[v0] Test API called');
-  
-  return res.status(200).json({ 
+// Vercel Serverless Function
+
+export default function handler(req, res) {
+  res.status(200).json({ 
     success: true, 
     message: 'API is working!',
     timestamp: new Date().toISOString(),
