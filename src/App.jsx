@@ -117,20 +117,24 @@ const STATUS_MAP = {
 
 // Email notification helper
 const sendNotification = async ({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }) => {
+  console.log('[v0] sendNotification called:', { type, to, customerName });
   try {
     const response = await fetch('/api/send-notification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }),
     });
+    console.log('[v0] API response status:', response.status);
     const data = await response.json();
+    console.log('[v0] API response data:', data);
     if (!response.ok) {
-      console.error('Notification failed:', data);
+      console.error('[v0] Notification failed:', data);
       return false;
     }
+    console.log('[v0] Notification sent successfully!');
     return true;
   } catch (error) {
-    console.error('Notification error:', error);
+    console.error('[v0] Notification error:', error);
     return false;
   }
 };
