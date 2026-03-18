@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>First Call Maintenance – Notification</title>
+  <!--
+    =====================================================================
+    First Call Maintenance – Resend Email Template
+    =====================================================================
+    HOW TO USE IN RESEND
+    ─────────────────────────────────────────────────────────────────────
+    1. Log in to https://resend.com and go to "Templates".
+    2. Click "Create Template" → paste the HTML below into the editor.
+    3. Replace the placeholder variables ({{variable_name}}) with the
+       matching values when you send via the API or the
+       /api/send-notification serverless function.
+
+    AVAILABLE PLACEHOLDERS
+    ─────────────────────────────────────────────────────────────────────
+    {{customer_name}}   – Full name of the customer
+    {{message}}         – Body paragraph(s) for this specific notification
+    {{cta_url}}         – URL for the call-to-action button (your app URL)
+    {{cta_label}}       – Button label text (e.g. "View Request")
+    {{footer_note}}     – Optional extra footer line (e.g. scheduled time)
+
+    NOTE: The /api/send-notification serverless function builds its own
+    inline HTML for each notification type (new_request, request_confirmation,
+    request_scheduled, new_message, status_update, general_update).
+    This file is a standalone copy-paste template you can load into the
+    Resend template editor for manual campaigns or custom integrations.
+    =====================================================================
+  -->
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        Helvetica, Arial, sans-serif;
+    }
+    .wrapper {
+      max-width: 600px;
+      margin: 40px auto;
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .header {
+      background: #9333ea;
+      padding: 28px 32px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .header p {
+      margin: 6px 0 0;
+      color: #e9d5ff;
+      font-size: 13px;
+    }
+    .body {
+      padding: 36px 32px;
+      background: #f8fafc;
+    }
+    .body h2 {
+      margin: 0 0 16px;
+      color: #1e293b;
+      font-size: 20px;
+    }
+    .body p {
+      margin: 0 0 16px;
+      color: #64748b;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .highlight-box {
+      background: #ffffff;
+      border-left: 4px solid #9333ea;
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin: 20px 0;
+      color: #1e293b;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .cta-btn {
+      display: inline-block;
+      margin-top: 8px;
+      background: #9333ea;
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 13px 28px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .footer {
+      padding: 20px 32px;
+      text-align: center;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 4px 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+
+    <!-- ── Header ─────────────────────────────────────────────────── -->
+    <div class="header">
+      <h1>First Call Maintenance</h1>
+      <p>Home Repair &amp; Maintenance Services</p>
+    </div>
+
+    <!-- ── Body ───────────────────────────────────────────────────── -->
+    <div class="body">
+      <!--
+        Replace {{heading}} with a short heading, e.g.:
+          "New Repair Request", "Your Request Has Been Scheduled", etc.
+      -->
+      <h2>{{heading}}</h2>
+
+      <!--
+        Replace {{message}} with the main notification copy.
+        Example: "Hi {{customer_name}}, your repair request has been received."
+      -->
+      <p>{{message}}</p>
+
+      <!--
+        Optional highlight box (scheduled time, technician note, etc.).
+        Remove this block if not needed for this notification type.
+      -->
+      <div class="highlight-box">
+        {{footer_note}}
+      </div>
+
+      <!--
+        Call-to-action button.
+        Replace {{cta_url}} with the app URL and {{cta_label}} with the
+        button text (e.g. "View Request", "View Conversation").
+      -->
+      <a href="{{cta_url}}" class="cta-btn">{{cta_label}}</a>
+    </div>
+
+    <!-- ── Footer ─────────────────────────────────────────────────── -->
+    <div class="footer">
+      <p>First Call Maintenance &bull; Home Repair Services</p>
+      <p>📞 765-246-4405 &bull; ✉️ zak@firstcallmaintenance.biz</p>
+      <p style="margin-top:10px;">
+        You are receiving this email because you submitted or updated a repair
+        request through First Call Maintenance.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>
