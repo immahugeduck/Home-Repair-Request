@@ -81,6 +81,15 @@ Vercel will automatically:
 
 See `.env.example` for required variables.
 
+## Email Notifications
+
+The app sends email notifications (new request, confirmation, scheduled, messages)
+via **Resend**.  See [NOTIFICATIONS.md](./NOTIFICATIONS.md) for:
+
+- Required env var (`RESEND_API_KEY`)
+- How to paste the email template into Resend
+- How to call `sendNotification()` for each notification type
+
 ## License
 
 See LICENSE file
