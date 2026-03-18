@@ -41,9 +41,7 @@ export default async function handler(req, res) {
   let emailSubject = subject;
   let emailHtml = '';
   
-  const appUrl = process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}` 
-    : 'https://firstcallmaintenance.biz';
+  const appUrl = process.env.APP_URL || 'https://home-repair-request.vercel.app';
 
   switch (type) {
     case 'new_request':
