@@ -15,6 +15,7 @@ project environment variables** (production):
 |---|---|---|
 | `RESEND_API_KEY` | ✅ Yes | Your Resend API key – obtain from [resend.com/api-keys](https://resend.com/api-keys). **Never commit this value to source control.** |
 | `RESEND_FROM_EMAIL` | Optional | Override the sender address once your domain is verified in Resend. Defaults to `First Call Maintenance <onboarding@resend.dev>`. Example: `First Call Maintenance <notifications@firstcallmaintenance.biz>` |
+| `APP_URL` | Optional | The stable public URL of the app, used as the link in email notification buttons. Defaults to `https://home-repair-request.vercel.app`. Change to `https://firstcallmaintenance.biz` once that domain is fully working. |
 
 > Admin notifications are sent to **zak@firstcallmaintenance.biz** (the `ADMIN_EMAIL`
 > constant in `sendNotification.js`).
