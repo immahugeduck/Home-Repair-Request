@@ -41,7 +41,16 @@ export default async function handler(req, res) {
   let emailSubject = subject;
   let emailHtml = '';
   
-  const appUrl = process.env.APP_URL || 'https://home-repair-request.vercel.app';
+  const appUrl = ((raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) {
+      return 'https://home-repair-request.vercel.app';
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return 'https://' + trimmed;
+    }
+    return trimmed;
+  })(process.env.APP_URL);
 
   switch (type) {
     case 'new_request':
