@@ -115,22 +115,61 @@ const STATUS_MAP = {
   completed: { label: 'Completed', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
-// Email notification helper
-const sendNotification = async ({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }) => {
-  try {
-    const response = await fetch('/api/send-notification', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, to, subject, customerName, adminMessage, scheduledTime, requestId }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      console.error('Notification failed:', data);
+// EmailJS Configuration - Set up at https://www.emailjs.com/
+// 1. Create free account at emailjs.com
+// 2. Add an email service (Gmail, Outlook, etc.)
+// 3. Create email templates for notifications
+// 4. Replace these IDs with your own
+const EMAILJS_SERVICE_ID = 'service_fcm'; // Your EmailJS service ID
+const EMAILJS_TEMPLATE_ID = 'template_notification'; // Your template ID  
+const EMAILJS_PUBLIC_KEY = 'YOUR_PUBLIC_KEY'; // Your public key from EmailJS
+const SITE_URL = 'https://home-repair-request.vercel.app';
+
+// Initialize EmailJS
+if (typeof emailjs !== 'undefined') {
+  emailjs.init(EMAILJS_PUBLIC_KEY);
+}
+
+// Email notification using EmailJS (works from browser)
+const sendNotification = async ({ type, to, customerName, adminMessage, scheduledTime }) => {
+  // Skip if EmailJS not loaded or not configured
+  if (typeof emailjs === 'undefined' || EMAILJS_PUBLIC_KEY === 'YOUR_PUBLIC_KEY') {
+    console.log('EmailJS not configured - skipping notification');
+    return false;
+  }
+  
+  let subject = '';
+  let message = '';
+  
+  switch (type) {
+    case 'new_request':
+      subject = `New Repair Request from ${customerName}`;
+      message = `You have received a new repair request from ${customerName}. Log in to view details and respond.`;
+      break;
+    case 'request_scheduled':
+      subject = 'Your Repair Has Been Scheduled';
+      message = `Hi ${customerName}, your repair has been scheduled for: ${scheduledTime}. Log in to view details.`;
+      break;
+    case 'new_message':
+      subject = 'New Message on Your Repair Request';
+      message = `Hi ${customerName || 'there'}, you have a new message: "${adminMessage}". Log in to view the conversation.`;
+      break;
+    default:
       return false;
-    }
+  }
+
+  try {
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+      to_email: to,
+      subject: subject,
+      message: message,
+      site_url: SITE_URL,
+      customer_name: customerName || 'Customer',
+    });
+    console.log('Email notification sent successfully');
     return true;
   } catch (error) {
-    console.error('Notification error:', error);
+    console.error('EmailJS error:', error);
     return false;
   }
 };

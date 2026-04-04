@@ -2,6 +2,8 @@
 // Uses Resend for email delivery
 
 export default async function handler(req, res) {
+  console.log('[v0] send-notification API called, method:', req.method);
+  
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19,16 +21,21 @@ export default async function handler(req, res) {
   };
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const FROM_EMAIL = process.env.RESEND_FROM_EMAIL;
+  
+  console.log('[v0] RESEND_API_KEY exists:', !!RESEND_API_KEY);
+  console.log('[v0] RESEND_FROM_EMAIL:', FROM_EMAIL);
   
   if (!RESEND_API_KEY) {
-    console.error('RESEND_API_KEY not configured');
+    console.error('[v0] RESEND_API_KEY not configured');
     return res.status(500).json({ error: 'Email service not configured' });
   }
 
   const { type, to, subject, requestId, customerName, adminMessage, scheduledTime, senderName } = req.body;
 
   if (!to || !type) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    console.log('[v0] Missing required fields');
+    return res.status(400).json({ error: 'Missing required fields: to and type are required' });
   }
 
   // Escape user-supplied values used in HTML templates
@@ -41,9 +48,7 @@ export default async function handler(req, res) {
   let emailSubject = subject;
   let emailHtml = '';
   
-  const appUrl = process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}` 
-    : 'https://firstcallmaintenance.biz';
+  const appUrl = 'https://firstcallmaintenance.biz';
 
   switch (type) {
     case 'new_request':
@@ -93,7 +98,6 @@ export default async function handler(req, res) {
       break;
 
     case 'request_scheduled':
-      // Notification to customer that request has been scheduled
       emailSubject = emailSubject || 'Your Repair Request Has Been Scheduled';
       emailHtml = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -140,7 +144,6 @@ export default async function handler(req, res) {
       break;
 
     case 'status_update':
-      // Notification about status change
       emailSubject = emailSubject || 'Your Repair Request Status Has Been Updated';
       emailHtml = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -162,14 +165,14 @@ export default async function handler(req, res) {
       break;
 
     default:
+      console.log('[v0] Invalid notification type:', type);
       return res.status(400).json({ error: 'Invalid notification type' });
   }
 
   try {
-    // Use Resend's default domain until custom domain is verified
-    // To use your own domain (notifications@firstcallmaintenance.biz), 
-    // verify your domain at https://resend.com/domains
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'First Call Maintenance <onboarding@resend.dev>';
+    const fromEmail = FROM_EMAIL || 'First Call Maintenance <onboarding@resend.dev>';
+    
+    console.log('[v0] Sending email - From:', fromEmail, 'To:', to, 'Subject:', emailSubject);
     
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -186,15 +189,17 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
+    console.log('[v0] Resend response:', response.status, JSON.stringify(data));
 
     if (!response.ok) {
-      console.error('Resend API error:', data);
+      console.error('[v0] Resend API error:', data);
       return res.status(response.status).json({ error: 'Failed to send email', details: data });
     }
 
+    console.log('[v0] Email sent successfully! ID:', data.id);
     return res.status(200).json({ success: true, messageId: data.id });
   } catch (error) {
-    console.error('Email send error:', error);
+    console.error('[v0] Email send error:', error.message);
     return res.status(500).json({ error: 'Failed to send email', message: error.message });
   }
 }
