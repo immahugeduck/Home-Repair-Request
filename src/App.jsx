@@ -667,7 +667,16 @@ const [formData, setFormData] = useState({
   const [submitting, setSubmitting] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [messageImage, setMessageImage] = useState(null);
+  const [messageImagePreview, setMessageImagePreview] = useState(null);
   const msgImageInputRef = useRef(null);
+
+  // Manage preview URL lifecycle to avoid memory leaks
+  useEffect(() => {
+    if (!messageImage) { setMessageImagePreview(null); return; }
+    const url = URL.createObjectURL(messageImage);
+    setMessageImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [messageImage]);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     fullName: userProfile?.fullName || '',
@@ -907,7 +916,7 @@ const handleSubmitRequest = async (e) => {
                   }`}
                 >
                   {msg.imageUrl && (
-                    <img src={msg.imageUrl} alt="attachment" className="w-full max-w-[200px] object-cover" />
+                    <img src={msg.imageUrl} alt="Message attachment" className="w-full max-w-[200px] object-cover" />
                   )}
                   <div className="p-3">
                     {msg.isAdmin && (
@@ -922,9 +931,9 @@ const handleSubmitRequest = async (e) => {
 
           {/* Message Input */}
           <div className="bg-white p-4 border-t border-slate-100">
-            {messageImage && (
+            {messageImagePreview && (
               <div className="relative inline-block mb-2">
-                <img src={URL.createObjectURL(messageImage)} alt="preview" className="h-20 rounded-lg object-cover" />
+                <img src={messageImagePreview} alt="Image to send" className="h-20 rounded-lg object-cover" />
                 <button
                   onClick={() => setMessageImage(null)}
                   className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5"
@@ -946,7 +955,12 @@ const handleSubmitRequest = async (e) => {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => setMessageImage(e.target.files[0] || null)}
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file && file.size > 10 * 1024 * 1024) { alert('Image must be under 10 MB'); return; }
+                  setMessageImage(file || null);
+                  e.target.value = '';
+                }}
               />
               <input
                 type="text"
@@ -1444,8 +1458,17 @@ const AdminDashboard = ({ onExit }) => {
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [messageImage, setMessageImage] = useState(null);
+  const [messageImagePreview, setMessageImagePreview] = useState(null);
   const adminMsgImageInputRef = useRef(null);
   const [scheduleTime, setScheduleTime] = useState('');
+
+  // Manage preview URL lifecycle to avoid memory leaks
+  useEffect(() => {
+    if (!messageImage) { setMessageImagePreview(null); return; }
+    const url = URL.createObjectURL(messageImage);
+    setMessageImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [messageImage]);
 
   // Load all requests
   useEffect(() => {
@@ -1699,7 +1722,7 @@ const AdminDashboard = ({ onExit }) => {
                   }`}
                 >
                   {msg.imageUrl && (
-                    <img src={msg.imageUrl} alt="attachment" className="w-full max-w-[200px] object-cover" />
+                    <img src={msg.imageUrl} alt="Message attachment" className="w-full max-w-[200px] object-cover" />
                   )}
                   <div className="p-3">
                     {!msg.isAdmin && (
@@ -1714,9 +1737,9 @@ const AdminDashboard = ({ onExit }) => {
 
           {/* Message Input */}
           <div className="p-4 border-t border-slate-800">
-            {messageImage && (
+            {messageImagePreview && (
               <div className="relative inline-block mb-2">
-                <img src={URL.createObjectURL(messageImage)} alt="preview" className="h-20 rounded-lg object-cover" />
+                <img src={messageImagePreview} alt="Image to send" className="h-20 rounded-lg object-cover" />
                 <button
                   onClick={() => setMessageImage(null)}
                   className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5"
@@ -1738,7 +1761,12 @@ const AdminDashboard = ({ onExit }) => {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => setMessageImage(e.target.files[0] || null)}
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file && file.size > 10 * 1024 * 1024) { alert('Image must be under 10 MB'); return; }
+                  setMessageImage(file || null);
+                  e.target.value = '';
+                }}
               />
               <input
                 type="text"
