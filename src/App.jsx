@@ -20,6 +20,12 @@ import {
   orderBy,
   where
 } from 'firebase/firestore';
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL
+} from 'firebase/storage';
 import { 
   Plus, 
   Wrench, 
@@ -73,16 +79,27 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
+let storage = null;
 let firebaseInitError = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   firebaseInitError = `Firebase initialization error: ${error.message}`;
   console.error(firebaseInitError);
 }
+
+// Upload a file to Firebase Storage and return its download URL
+const uploadToStorage = async (file, folder = 'uploads') => {
+  const ext = file.name.split('.').pop();
+  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const fileRef = storageRef(storage, filename);
+  await uploadBytes(fileRef, file);
+  return getDownloadURL(fileRef);
+};
 
 const appId = 'home-repair-app';
 
@@ -646,8 +663,11 @@ const [formData, setFormData] = useState({
     description: '',
     preferredTime: ''
   });
+  const [requestPhotos, setRequestPhotos] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [messageText, setMessageText] = useState('');
+  const [messageImage, setMessageImage] = useState(null);
+  const msgImageInputRef = useRef(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     fullName: userProfile?.fullName || '',
@@ -676,30 +696,11 @@ const [formData, setFormData] = useState({
   }, [selectedRequest]);
 
   const uploadPhotos = async (photos) => {
-    try {
-      const formData = new FormData();
-      for (const photo of photos) {
-        if (photo.file) {
-          formData.append('files', photo.file);
-        }
-      }
-      
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.details || 'Upload failed');
-      }
-      
-      const data = await response.json();
-      return data.urls || [];
-    } catch (error) {
-      console.error('Photo upload error:', error);
-      throw error;
-    }
+    return Promise.all(
+      photos
+        .filter(p => p.file)
+        .map(p => uploadToStorage(p.file, 'repair-photos'))
+    );
   };
 
 const handleSubmitRequest = async (e) => {
@@ -707,12 +708,15 @@ const handleSubmitRequest = async (e) => {
     setSubmitting(true);
 
     try {
+      // Upload any attached photos to Firebase Storage first
+      const photoUrls = requestPhotos.length > 0 ? await uploadPhotos(requestPhotos) : [];
+
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
       await addDoc(requestsRef, {
         category: formData.category,
         description: formData.description,
         preferredTime: formData.preferredTime,
-        photos: [],
+        photos: photoUrls,
         address: selectedAddress?.address || userProfile?.address || '',
         addressLabel: selectedAddress?.label || 'Primary',
         userId: user.uid,
@@ -743,6 +747,7 @@ const handleSubmitRequest = async (e) => {
         description: '',
         preferredTime: ''
       });
+      setRequestPhotos([]);
       setView('list');
     } catch (error) {
       console.error('Submit error:', error);
@@ -753,15 +758,22 @@ const handleSubmitRequest = async (e) => {
   };
 
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedRequest) return;
+    if (!messageText.trim() && !messageImage) return;
+    if (!selectedRequest) return;
 
     try {
+      let imageUrl = null;
+      if (messageImage) {
+        imageUrl = await uploadToStorage(messageImage, 'message-photos');
+      }
+
       const messagesRef = collection(
         db,
         'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
       );
       await addDoc(messagesRef, {
         text: messageText,
+        imageUrl: imageUrl || null,
         senderId: user.uid,
         senderName: userProfile.fullName,
         isAdmin: false,
@@ -778,6 +790,7 @@ const handleSubmitRequest = async (e) => {
       });
       
       setMessageText('');
+      setMessageImage(null);
     } catch (error) {
       console.error('Send message error:', error);
     }
@@ -887,16 +900,21 @@ const handleSubmitRequest = async (e) => {
               messages.map(msg => (
                 <div
                   key={msg.id}
-                  className={`max-w-[80%] p-3 rounded-2xl ${
+                  className={`max-w-[80%] rounded-2xl overflow-hidden ${
                     msg.isAdmin 
                       ? 'bg-white border border-slate-200 mr-auto'
                       : 'bg-purple-600 text-white ml-auto'
                   }`}
                 >
-                  {msg.isAdmin && (
-                    <p className="text-[10px] font-bold text-purple-600 mb-1">{COMPANY.name}</p>
+                  {msg.imageUrl && (
+                    <img src={msg.imageUrl} alt="attachment" className="w-full max-w-[200px] object-cover" />
                   )}
-                  <p className="text-sm">{msg.text}</p>
+                  <div className="p-3">
+                    {msg.isAdmin && (
+                      <p className="text-[10px] font-bold text-purple-600 mb-1">{COMPANY.name}</p>
+                    )}
+                    {msg.text && <p className="text-sm">{msg.text}</p>}
+                  </div>
                 </div>
               ))
             )}
@@ -904,7 +922,32 @@ const handleSubmitRequest = async (e) => {
 
           {/* Message Input */}
           <div className="bg-white p-4 border-t border-slate-100">
+            {messageImage && (
+              <div className="relative inline-block mb-2">
+                <img src={URL.createObjectURL(messageImage)} alt="preview" className="h-20 rounded-lg object-cover" />
+                <button
+                  onClick={() => setMessageImage(null)}
+                  className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => msgImageInputRef.current?.click()}
+                className="p-3 rounded-xl border border-slate-200 text-slate-400 hover:text-purple-500 hover:border-purple-300 transition-colors"
+              >
+                <Image size={20} />
+              </button>
+              <input
+                ref={msgImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setMessageImage(e.target.files[0] || null)}
+              />
               <input
                 type="text"
                 value={messageText}
@@ -915,7 +958,7 @@ const handleSubmitRequest = async (e) => {
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!messageText.trim()}
+                disabled={!messageText.trim() && !messageImage}
                 className="bg-purple-600 text-white p-3 rounded-xl disabled:opacity-50"
               >
                 <Send size={20} />
@@ -1171,6 +1214,9 @@ const handleSubmitRequest = async (e) => {
                 </div>
               )}
 
+              {/* Photos */}
+              <PhotoUploader photos={requestPhotos} setPhotos={setRequestPhotos} />
+
               <button
                 type="submit"
                 disabled={submitting}
@@ -1397,6 +1443,8 @@ const AdminDashboard = ({ onExit }) => {
   const [view, setView] = useState('inbox');
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
+  const [messageImage, setMessageImage] = useState(null);
+  const adminMsgImageInputRef = useRef(null);
   const [scheduleTime, setScheduleTime] = useState('');
 
   // Load all requests
@@ -1482,15 +1530,22 @@ const AdminDashboard = ({ onExit }) => {
   };
 
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedRequest) return;
+    if (!messageText.trim() && !messageImage) return;
+    if (!selectedRequest) return;
 
     try {
+      let imageUrl = null;
+      if (messageImage) {
+        imageUrl = await uploadToStorage(messageImage, 'message-photos');
+      }
+
       const messagesRef = collection(
         db,
         'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
       );
       await addDoc(messagesRef, {
         text: messageText,
+        imageUrl: imageUrl || null,
         senderId: 'admin',
         senderName: COMPANY.name,
         isAdmin: true,
@@ -1506,6 +1561,7 @@ const AdminDashboard = ({ onExit }) => {
       }
       
       setMessageText('');
+      setMessageImage(null);
     } catch (error) {
       console.error('Send message error:', error);
     }
@@ -1636,16 +1692,21 @@ const AdminDashboard = ({ onExit }) => {
               messages.map(msg => (
                 <div
                   key={msg.id}
-                  className={`max-w-[80%] p-3 rounded-2xl ${
+                  className={`max-w-[80%] rounded-2xl overflow-hidden ${
                     msg.isAdmin
                       ? 'bg-purple-600 ml-auto'
                       : 'bg-slate-800 mr-auto'
                   }`}
                 >
-                  {!msg.isAdmin && (
-                    <p className="text-[10px] font-bold text-slate-400 mb-1">{msg.senderName}</p>
+                  {msg.imageUrl && (
+                    <img src={msg.imageUrl} alt="attachment" className="w-full max-w-[200px] object-cover" />
                   )}
-                  <p className="text-sm">{msg.text}</p>
+                  <div className="p-3">
+                    {!msg.isAdmin && (
+                      <p className="text-[10px] font-bold text-slate-400 mb-1">{msg.senderName}</p>
+                    )}
+                    {msg.text && <p className="text-sm">{msg.text}</p>}
+                  </div>
                 </div>
               ))
             )}
@@ -1653,7 +1714,32 @@ const AdminDashboard = ({ onExit }) => {
 
           {/* Message Input */}
           <div className="p-4 border-t border-slate-800">
+            {messageImage && (
+              <div className="relative inline-block mb-2">
+                <img src={URL.createObjectURL(messageImage)} alt="preview" className="h-20 rounded-lg object-cover" />
+                <button
+                  onClick={() => setMessageImage(null)}
+                  className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => adminMsgImageInputRef.current?.click()}
+                className="p-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-purple-400 hover:border-purple-600 transition-colors"
+              >
+                <Image size={20} />
+              </button>
+              <input
+                ref={adminMsgImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setMessageImage(e.target.files[0] || null)}
+              />
               <input
                 type="text"
                 value={messageText}
@@ -1664,7 +1750,7 @@ const AdminDashboard = ({ onExit }) => {
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!messageText.trim()}
+                disabled={!messageText.trim() && !messageImage}
                 className="bg-purple-600 p-3 rounded-xl disabled:opacity-50"
               >
                 <Send size={20} />
