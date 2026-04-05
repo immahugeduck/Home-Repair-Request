@@ -43,7 +43,6 @@ import {
   User,
   X,
   Inbox,
-  ShieldCheck,
   MapPin,
   ClipboardList,
   Phone,
@@ -120,9 +119,6 @@ const COMPANY = {
   email: 'zak@firstcallmaintenance.biz',
   logo: '/logo.png'
 };
-
-// Admin Code - Change this to your preferred code
-const ADMIN_CODE = 'fcm2024';
 
 // --- Constants & Helpers ---
 const CATEGORIES = [
@@ -1885,9 +1881,6 @@ function App() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [appState, setAppState] = useState('landing'); // 'landing', 'auth', 'profile-setup', 'app', 'admin'
-  const [showAdminPrompt, setShowAdminPrompt] = useState(false);
-  const [adminCode, setAdminCode] = useState('');
-  const [adminError, setAdminError] = useState(false);
 
   // Auth listener
   useEffect(() => {
@@ -1896,10 +1889,20 @@ function App() {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        setAppState('app'); // Will check profile in next effect
+        try {
+          const tokenResult = await getIdTokenResult(u, /* forceRefresh */ true);
+          if (tokenResult.claims.admin) {
+            setAppState('admin');
+          } else {
+            setAppState('app'); // Will check profile in next effect
+          }
+        } catch (err) {
+          console.error('Failed to get ID token result:', err);
+          setAppState('app');
+        }
       } else {
         setAppState('landing');
         setUserProfile(null);
@@ -1959,33 +1962,6 @@ function App() {
     }
   };
 
-  const handleAdminAccess = async () => {
-    if (adminCode !== ADMIN_CODE) {
-      setAdminError(true);
-      return;
-    }
-    // Also verify the Firebase custom claim admin == true
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        setAdminError(true);
-        return;
-      }
-      const tokenResult = await getIdTokenResult(currentUser, /* forceRefresh */ true);
-      if (!tokenResult.claims.admin) {
-        setAdminError(true);
-        return;
-      }
-    } catch {
-      setAdminError(true);
-      return;
-    }
-    setAppState('admin');
-    setShowAdminPrompt(false);
-    setAdminCode('');
-    setAdminError(false);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -2008,62 +1984,6 @@ function App() {
       </div>
     );
   }
-
-  // Admin prompt modal rendered inline (not as component to avoid re-mount on state change)
-  const adminPromptModal = showAdminPrompt ? (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
-      <form 
-        className="bg-white rounded-2xl p-6 w-full max-w-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleAdminAccess();
-        }}
-      >
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Admin Access</h2>
-        {adminError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl mb-4 text-sm">
-            Invalid admin code or insufficient permissions
-          </div>
-        )}
-        <input
-          type="password"
-          value={adminCode}
-          onChange={(e) => {
-            setAdminCode(e.target.value);
-            setAdminError(false);
-          }}
-          placeholder="Enter admin code"
-          className={`w-full p-4 rounded-xl border outline-none mb-4 text-base ${
-            adminError ? 'border-red-300 bg-red-50' : 'border-slate-200'
-          }`}
-          autoFocus
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck="false"
-        />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setShowAdminPrompt(false);
-              setAdminCode('');
-              setAdminError(false);
-            }}
-            className="flex-1 py-3 rounded-xl bg-slate-100 font-bold text-slate-600"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="flex-1 py-3 rounded-xl bg-purple-600 font-bold text-white"
-          >
-            Enter
-          </button>
-        </div>
-      </form>
-    </div>
-  ) : null;
 
   return (
     <>
@@ -2099,20 +2019,9 @@ function App() {
       )}
 
       {appState === 'admin' && (
-        <AdminDashboard onExit={() => setAppState(user ? 'app' : 'landing')} />
+        <AdminDashboard onExit={() => { signOut(auth); }} />
       )}
 
-      {/* Admin Access Button - shown on landing AND app pages */}
-      {(appState === 'landing' || appState === 'app') && (
-        <button
-          onClick={() => setShowAdminPrompt(true)}
-          className="fixed bottom-6 right-6 bg-slate-800 text-white p-3 rounded-full shadow-lg"
-        >
-          <ShieldCheck size={20} />
-        </button>
-      )}
-
-      {adminPromptModal}
     </>
   );
 }
