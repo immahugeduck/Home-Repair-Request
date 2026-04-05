@@ -2102,8 +2102,8 @@ function App() {
         <AdminDashboard onExit={() => setAppState(user ? 'app' : 'landing')} />
       )}
 
-      {/* Admin Access Button - shown on landing page */}
-      {appState === 'landing' && (
+      {/* Admin Access Button - shown on landing AND app pages */}
+      {(appState === 'landing' || appState === 'app') && (
         <button
           onClick={() => setShowAdminPrompt(true)}
           className="fixed bottom-6 right-6 bg-slate-800 text-white p-3 rounded-full shadow-lg"
