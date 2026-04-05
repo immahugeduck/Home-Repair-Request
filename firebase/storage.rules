@@ -1,0 +1,54 @@
+// Firebase Storage Security Rules
+// Apply these in: Firebase Console → Build → Storage → Rules
+//
+// Path conventions enforced by the app:
+//   repair-photos/{requestId}/{uid}/{filename}
+//   message-photos/{requestId}/{uid}/{filename}
+//
+// Access model:
+//   - Admins (custom claim admin == true) can read/write any path.
+//   - Authenticated users can read/write only paths where the {requestId}
+//     corresponds to a Firestore repair request whose userId == their uid.
+//   - All other paths are denied.
+//
+// NOTE: The Firestore path below references the app ID 'home-repair-app'.
+// This matches the `appId` constant in src/App.jsx. If that constant changes,
+// update the path here accordingly.
+//
+// IMPORTANT: After setting the admin custom claim, the admin user must sign
+// out and sign back in so the token is refreshed with the new claim.
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper: check if the caller has the admin custom claim
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Helper: check that the Firestore repair request for {requestId} is owned
+    // by the currently authenticated user.
+    function ownsRequest(requestId) {
+      return request.auth != null &&
+        firestore.get(
+          /databases/(default)/documents/artifacts/home-repair-app/public/data/repairRequests/$(requestId)
+        ).data.userId == request.auth.uid;
+    }
+
+    // Repair-request photos: repair-photos/{requestId}/{uid}/{filename}
+    match /repair-photos/{requestId}/{uid}/{filename} {
+      allow read, write: if isAdmin() || ownsRequest(requestId);
+    }
+
+    // Message attachment photos: message-photos/{requestId}/{uid}/{filename}
+    match /message-photos/{requestId}/{uid}/{filename} {
+      allow read, write: if isAdmin() || ownsRequest(requestId);
+    }
+
+    // Deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

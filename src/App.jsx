@@ -5,7 +5,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged 
+  onAuthStateChanged,
+  getIdTokenResult
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -92,10 +93,17 @@ try {
   console.error(firebaseInitError);
 }
 
-// Upload a file to Firebase Storage and return its download URL
-const uploadToStorage = async (file, folder = 'uploads') => {
+// Upload a file to Firebase Storage and return its download URL.
+// When requestId and uid are provided the file is stored under a scoped path:
+//   {folder}/{requestId}/{uid}/{timestamp-random}.{ext}
+// This allows Storage security rules to enforce per-request ownership.
+const uploadToStorage = async (file, folder = 'uploads', requestId = null, uid = null) => {
+  if (!storage) throw new Error('Firebase Storage is not initialized');
   const ext = file.name.split('.').pop();
-  const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const randomSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const filename = requestId && uid
+    ? `${folder}/${requestId}/${uid}/${randomSuffix}.${ext}`
+    : `${folder}/${randomSuffix}.${ext}`;
   const fileRef = storageRef(storage, filename);
   await uploadBytes(fileRef, file);
   return getDownloadURL(fileRef);
@@ -704,11 +712,11 @@ const [formData, setFormData] = useState({
     return () => unsubscribe();
   }, [selectedRequest]);
 
-  const uploadPhotos = async (photos) => {
+  const uploadPhotos = async (photos, requestId) => {
     return Promise.all(
       photos
         .filter(p => p.file)
-        .map(p => uploadToStorage(p.file, 'repair-photos'))
+        .map(p => uploadToStorage(p.file, 'repair-photos', requestId, user.uid))
     );
   };
 
@@ -717,15 +725,13 @@ const handleSubmitRequest = async (e) => {
     setSubmitting(true);
 
     try {
-      // Upload any attached photos to Firebase Storage first
-      const photoUrls = requestPhotos.length > 0 ? await uploadPhotos(requestPhotos) : [];
-
+      // Create the request doc first (with empty photos) to get a requestId
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repairRequests');
-      await addDoc(requestsRef, {
+      const requestRef = await addDoc(requestsRef, {
         category: formData.category,
         description: formData.description,
         preferredTime: formData.preferredTime,
-        photos: photoUrls,
+        photos: [],
         address: selectedAddress?.address || userProfile?.address || '',
         addressLabel: selectedAddress?.label || 'Primary',
         userId: user.uid,
@@ -735,6 +741,14 @@ const handleSubmitRequest = async (e) => {
         status: 'pending',
         createdAt: serverTimestamp()
       });
+
+      // Upload photos under a path scoped to this requestId and uid
+      const photoUrls = requestPhotos.length > 0 ? await uploadPhotos(requestPhotos, requestRef.id) : [];
+
+      // Update the request doc with the uploaded photo URLs
+      if (photoUrls.length > 0) {
+        await updateDoc(requestRef, { photos: photoUrls });
+      }
 
       // Send email notification to admin
       sendNotification({
@@ -773,7 +787,7 @@ const handleSubmitRequest = async (e) => {
     try {
       let imageUrl = null;
       if (messageImage) {
-        imageUrl = await uploadToStorage(messageImage, 'message-photos');
+        imageUrl = await uploadToStorage(messageImage, 'message-photos', selectedRequest.id, user.uid);
       }
 
       const messagesRef = collection(
@@ -1559,7 +1573,8 @@ const AdminDashboard = ({ onExit }) => {
     try {
       let imageUrl = null;
       if (messageImage) {
-        imageUrl = await uploadToStorage(messageImage, 'message-photos');
+        const adminUid = auth.currentUser?.uid;
+        imageUrl = await uploadToStorage(messageImage, 'message-photos', selectedRequest.id, adminUid);
       }
 
       const messagesRef = collection(
@@ -1944,15 +1959,31 @@ function App() {
     }
   };
 
-  const handleAdminAccess = () => {
-    if (adminCode === ADMIN_CODE) {
-      setAppState('admin');
-      setShowAdminPrompt(false);
-      setAdminCode('');
-      setAdminError(false);
-    } else {
+  const handleAdminAccess = async () => {
+    if (adminCode !== ADMIN_CODE) {
       setAdminError(true);
+      return;
     }
+    // Also verify the Firebase custom claim admin == true
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setAdminError(true);
+        return;
+      }
+      const tokenResult = await getIdTokenResult(currentUser, /* forceRefresh */ true);
+      if (!tokenResult.claims.admin) {
+        setAdminError(true);
+        return;
+      }
+    } catch {
+      setAdminError(true);
+      return;
+    }
+    setAppState('admin');
+    setShowAdminPrompt(false);
+    setAdminCode('');
+    setAdminError(false);
   };
 
   if (loading) {
@@ -1991,7 +2022,7 @@ function App() {
         <h2 className="text-lg font-bold text-slate-900 mb-4">Admin Access</h2>
         {adminError && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl mb-4 text-sm">
-            Invalid admin code
+            Invalid admin code or insufficient permissions
           </div>
         )}
         <input

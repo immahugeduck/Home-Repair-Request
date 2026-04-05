@@ -1,0 +1,91 @@
+// Firebase Firestore Security Rules
+// Apply these in: Firebase Console → Build → Firestore Database → Rules
+//
+// Collection paths used by the app:
+//   /artifacts/home-repair-app/public/data/repairRequests/{requestId}
+//   /artifacts/home-repair-app/public/data/repairRequests/{requestId}/messages/{messageId}
+//   /artifacts/home-repair-app/users/{uid}/settings/profile
+//
+// Access model:
+//   - Admins (custom claim admin == true) have full read/write access everywhere.
+//   - Authenticated users can read their own repair requests and messages.
+//   - Authenticated users can create new repair requests (userId must equal their uid).
+//   - Authenticated users can update only the photos field of their own requests
+//     (used by the client after uploading images).
+//   - Authenticated users can create messages on their own requests.
+//   - Authenticated users can read/write their own profile document.
+//
+// NOTE: The paths below contain the hardcoded app ID 'home-repair-app'.
+// This matches the `appId` constant in src/App.jsx. If that constant changes,
+// update all matching paths here accordingly.
+//
+// IMPORTANT: After setting the admin custom claim, the admin user must sign
+// out and sign back in so the token is refreshed with the new claim.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: caller has the admin custom claim
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Helper: caller is authenticated and is the owner of a repair request document
+    function isOwner(requestData) {
+      return request.auth != null && requestData.userId == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------------
+    // Repair requests
+    // -----------------------------------------------------------------------
+    match /artifacts/home-repair-app/public/data/repairRequests/{requestId} {
+
+      // Read: owner or admin
+      allow read: if isAdmin() || isOwner(resource.data);
+
+      // Create: authenticated user; userId in the new doc must match their uid
+      allow create: if request.auth != null &&
+                       request.resource.data.userId == request.auth.uid;
+
+      // Update: admin has full update; owner may only update the photos field
+      allow update: if isAdmin() ||
+                    (isOwner(resource.data) &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photos']));
+
+      // Delete: admin only
+      allow delete: if isAdmin();
+
+      // -----------------------------------------------------------------------
+      // Messages sub-collection
+      // -----------------------------------------------------------------------
+      match /messages/{messageId} {
+
+        // Read: owner of the parent request or admin
+        allow read: if isAdmin() ||
+                    (request.auth != null &&
+                     get(/databases/$(database)/documents/artifacts/home-repair-app/public/data/repairRequests/$(requestId)).data.userId == request.auth.uid);
+
+        // Create: owner or admin
+        allow create: if isAdmin() ||
+                      (request.auth != null &&
+                       get(/databases/$(database)/documents/artifacts/home-repair-app/public/data/repairRequests/$(requestId)).data.userId == request.auth.uid);
+
+        // Update / Delete: admin only
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // User profile
+    // -----------------------------------------------------------------------
+    match /artifacts/home-repair-app/users/{uid}/settings/profile {
+      allow read, write: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
