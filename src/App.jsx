@@ -926,7 +926,12 @@ const handleSubmitRequest = async (e) => {
                   }`}
                 >
                   {msg.imageUrl && (
-                    <img src={msg.imageUrl} alt="Message attachment" className="w-full max-w-[200px] object-cover" />
+                    <img
+                      src={msg.imageUrl}
+                      alt="Message attachment"
+                      className="w-full max-w-[240px] max-h-[240px] object-cover block rounded-t-2xl"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
                   )}
                   <div className="p-3">
                     {msg.isAdmin && (
@@ -1733,7 +1738,12 @@ const AdminDashboard = ({ onExit }) => {
                   }`}
                 >
                   {msg.imageUrl && (
-                    <img src={msg.imageUrl} alt="Message attachment" className="w-full max-w-[200px] object-cover" />
+                    <img
+                      src={msg.imageUrl}
+                      alt="Message attachment"
+                      className="w-full max-w-[240px] max-h-[240px] object-cover block rounded-t-2xl"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
                   )}
                   <div className="p-3">
                     {!msg.isAdmin && (
