@@ -49,9 +49,10 @@ service cloud.firestore {
                        request.resource.data.userId == request.auth.uid;
 
       // Update: admin has full update; owner may only update the photos field
+      //         and notification tracking fields (unreadAdminCount, unreadCustomerCount, lastMessageAt)
       allow update: if isAdmin() ||
                     (isOwner(resource.data) &&
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photos']));
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photos', 'unreadAdminCount', 'unreadCustomerCount', 'lastMessageAt']));
 
       // Delete: admin only
       allow delete: if isAdmin();

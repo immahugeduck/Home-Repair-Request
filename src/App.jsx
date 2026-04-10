@@ -19,7 +19,8 @@ import {
   serverTimestamp,
   query,
   orderBy,
-  where
+  where,
+  increment
 } from 'firebase/firestore';
 import {
   getStorage,
@@ -53,6 +54,7 @@ import {
   AlertTriangle,
   Settings,
   RefreshCw,
+  Bell,
   Mail,
   Lock,
   Eye,
@@ -695,6 +697,10 @@ const [formData, setFormData] = useState({
       return;
     }
 
+    // Mark messages as read when opening a request
+    const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id);
+    updateDoc(requestRef, { unreadCustomerCount: 0 }).catch(() => {});
+
     const messagesRef = collection(
       db, 
       'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
@@ -703,6 +709,8 @@ const [formData, setFormData] = useState({
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      // Keep resetting unread count while viewing (handles new messages arriving)
+      updateDoc(requestRef, { unreadCustomerCount: 0 }).catch(() => {});
     });
 
     return () => unsubscribe();
@@ -735,7 +743,9 @@ const handleSubmitRequest = async (e) => {
         userPhone: userProfile.phone,
         userEmail: user.email,
         status: 'pending',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        unreadCustomerCount: 0,
+        unreadAdminCount: 1
       });
 
       // Upload photos under a path scoped to this requestId and uid
@@ -798,6 +808,10 @@ const handleSubmitRequest = async (e) => {
         isAdmin: false,
         createdAt: serverTimestamp()
       });
+
+      // Increment unread count for admin
+      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id);
+      await updateDoc(requestRef, { unreadAdminCount: increment(1), lastMessageAt: serverTimestamp() });
       
       // Notify admin of customer message
       sendNotification({
@@ -863,6 +877,7 @@ const handleSubmitRequest = async (e) => {
   };
 
   const pendingActions = requests.filter(r => r.status === 'scheduled').length;
+  const totalUnread = requests.reduce((sum, r) => sum + (r.unreadCustomerCount || 0), 0);
 
   // Request Detail View with Messages
   if (selectedRequest) {
@@ -1005,6 +1020,18 @@ const handleSubmitRequest = async (e) => {
       <header className="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100 sticky top-0 z-10">
         <img src={COMPANY.logo} alt={COMPANY.name} className="h-10 object-contain" />
         <div className="flex items-center gap-2">
+          {totalUnread > 0 && (
+            <button
+              onClick={() => setView('list')}
+              className="relative p-2 hover:bg-slate-100 rounded-full transition-colors"
+              title={`${totalUnread} unread message${totalUnread > 1 ? 's' : ''}`}
+            >
+              <Bell size={20} className="text-slate-600" />
+              <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1">
+                {totalUnread > 99 ? '99+' : totalUnread}
+              </span>
+            </button>
+          )}
           {pendingActions > 0 && (
             <div className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-xs font-bold">
               {pendingActions} Action{pendingActions > 1 ? 's' : ''}
@@ -1066,6 +1093,7 @@ const handleSubmitRequest = async (e) => {
                   {requests.slice(0, 3).map(req => {
                     const status = STATUS_MAP[req.status];
                     const cat = CATEGORIES.find(c => c.id === req.category);
+                    const unread = req.unreadCustomerCount || 0;
                     return (
                       <button
                         key={req.id}
@@ -1079,6 +1107,11 @@ const handleSubmitRequest = async (e) => {
                           <p className="font-bold text-slate-800 capitalize truncate">{req.category} Repair</p>
                           <p className={`text-xs font-bold ${status?.color}`}>{status?.label}</p>
                         </div>
+                        {unread > 0 && (
+                          <span className="bg-red-500 text-white text-[10px] font-bold min-w-[20px] h-[20px] flex items-center justify-center rounded-full px-1">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        )}
                         <ChevronRight size={20} className="text-slate-300" />
                       </button>
                     );
@@ -1277,6 +1310,7 @@ const handleSubmitRequest = async (e) => {
                 {requests.map(req => {
                   const status = STATUS_MAP[req.status];
                   const cat = CATEGORIES.find(c => c.id === req.category);
+                  const unread = req.unreadCustomerCount || 0;
                   return (
                     <button
                       key={req.id}
@@ -1285,8 +1319,13 @@ const handleSubmitRequest = async (e) => {
                         req.status === 'completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'
                       }`}
                     >
-                      <div className={`p-3 rounded-xl ${cat?.bg || 'bg-slate-50'}`}>
+                      <div className={`relative p-3 rounded-xl ${cat?.bg || 'bg-slate-50'}`}>
                         {cat ? <cat.icon size={20} className={cat.color} /> : <Wrench size={20} />}
+                        {unread > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full px-0.5">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-slate-800 capitalize truncate">{req.category} Repair</p>
@@ -1445,9 +1484,16 @@ const handleSubmitRequest = async (e) => {
           </button>
           <button
             onClick={() => setView('list')}
-            className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-purple-600' : 'text-slate-400'}`}
+            className={`relative flex flex-col items-center gap-1 ${view === 'list' ? 'text-purple-600' : 'text-slate-400'}`}
           >
-            <List size={22} />
+            <div className="relative">
+              <List size={22} />
+              {totalUnread > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full px-0.5">
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
+            </div>
             <span className="text-[10px] font-bold">Requests</span>
           </button>
           <button
@@ -1504,6 +1550,10 @@ const AdminDashboard = ({ onExit }) => {
       return;
     }
 
+    // Mark messages as read when admin opens a request
+    const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id);
+    updateDoc(requestRef, { unreadAdminCount: 0 }).catch(() => {});
+
     const messagesRef = collection(
       db,
       'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id, 'messages'
@@ -1512,6 +1562,8 @@ const AdminDashboard = ({ onExit }) => {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      // Keep resetting unread count while viewing (handles new messages arriving)
+      updateDoc(requestRef, { unreadAdminCount: 0 }).catch(() => {});
     });
 
     return () => unsubscribe();
@@ -1556,6 +1608,10 @@ const AdminDashboard = ({ onExit }) => {
       createdAt: serverTimestamp()
     });
 
+    // Increment unread count for customer (auto-message from scheduling)
+    const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id);
+    await updateDoc(requestRef, { unreadCustomerCount: increment(1), lastMessageAt: serverTimestamp() });
+
     // Send email notification to customer
     if (selectedRequest.userEmail) {
       sendNotification({
@@ -1590,6 +1646,10 @@ const AdminDashboard = ({ onExit }) => {
         isAdmin: true,
         createdAt: serverTimestamp()
       });
+
+      // Increment unread count for customer
+      const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'repairRequests', selectedRequest.id);
+      await updateDoc(requestRef, { unreadCustomerCount: increment(1), lastMessageAt: serverTimestamp() });
       
       // Send email notification to customer
       if (selectedRequest.userEmail) {
@@ -1609,6 +1669,7 @@ const AdminDashboard = ({ onExit }) => {
   const pendingCount = allRequests.filter(r => r.status === 'pending').length;
   const scheduledCount = allRequests.filter(r => r.status === 'scheduled').length;
   const inProgressCount = allRequests.filter(r => r.status === 'in_progress').length;
+  const totalAdminUnread = allRequests.reduce((sum, r) => sum + (r.unreadAdminCount || 0), 0);
 
   // Request Detail View
   if (selectedRequest) {
@@ -1819,16 +1880,32 @@ const AdminDashboard = ({ onExit }) => {
           <p className="text-slate-500 text-xs font-bold uppercase">Admin Dashboard</p>
           <h1 className="text-lg font-bold">{COMPANY.name}</h1>
         </div>
-        <button
-          onClick={onExit}
-          className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-bold"
-        >
-          Exit Admin
-        </button>
+        <div className="flex items-center gap-3">
+          {totalAdminUnread > 0 && (
+            <div className="relative p-2" title={`${totalAdminUnread} unread message${totalAdminUnread > 1 ? 's' : ''}`}>
+              <Bell size={22} className="text-slate-300" />
+              <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1">
+                {totalAdminUnread > 99 ? '99+' : totalAdminUnread}
+              </span>
+            </div>
+          )}
+          <button
+            onClick={onExit}
+            className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-bold"
+          >
+            Exit Admin
+          </button>
+        </div>
       </header>
 
       {/* Stats */}
       <div className="px-6 py-4 flex gap-3 overflow-x-auto">
+        {totalAdminUnread > 0 && (
+          <div className="bg-red-900/30 border border-red-800 rounded-xl px-4 py-3 shrink-0">
+            <p className="text-2xl font-bold text-red-400">{totalAdminUnread}</p>
+            <p className="text-xs text-red-300">Unread</p>
+          </div>
+        )}
         <div className="bg-amber-900/30 border border-amber-800 rounded-xl px-4 py-3 shrink-0">
           <p className="text-2xl font-bold text-amber-400">{pendingCount}</p>
           <p className="text-xs text-amber-300">Pending</p>
@@ -1857,20 +1934,31 @@ const AdminDashboard = ({ onExit }) => {
             {allRequests.map(req => {
               const status = STATUS_MAP[req.status];
               const cat = CATEGORIES.find(c => c.id === req.category);
+              const unread = req.unreadAdminCount || 0;
               return (
                 <button
                   key={req.id}
                   onClick={() => setSelectedRequest(req)}
                   className={`w-full bg-slate-800 p-4 rounded-xl flex items-center gap-4 text-left border ${status?.border || 'border-slate-700'}`}
                 >
-                  <div className={`p-3 rounded-lg ${cat?.bg || 'bg-slate-700'}`}>
+                  <div className={`relative p-3 rounded-lg ${cat?.bg || 'bg-slate-700'}`}>
                     {cat ? <cat.icon size={20} className={cat.color} /> : <Wrench size={20} />}
+                    {unread > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full px-0.5">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-white capitalize truncate">{req.category} Repair</p>
                     <p className="text-sm text-slate-400 truncate">{req.userName}</p>
                     <p className={`text-xs font-bold ${status?.color}`}>{status?.label}</p>
                   </div>
+                  {unread > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] font-bold min-w-[20px] h-[20px] flex items-center justify-center rounded-full px-1 shrink-0">
+                      {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
                   <ChevronRight size={20} className="text-slate-600" />
                 </button>
               );
